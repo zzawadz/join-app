@@ -1,19 +1,21 @@
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from datetime import datetime
 import csv
 import io
+import pandas as pd
 
 from app.db.database import get_db
 from app.db.models import User, Project, LinkageJob, LinkageModel, RecordPair, JobStatus
-from app.api.auth import get_current_active_user
+from app.api.auth import get_current_active_user, get_current_user
 from app.api.deps import get_project_or_404
 from app.schemas.linkage import (
     LinkageJobCreate, LinkageJobResponse, LinkageJobDetail,
     RecordPairResponse, LinkageResultsExport
 )
+from app.core.security import decode_token
 
 router = APIRouter()
 
@@ -218,34 +220,159 @@ def get_job_results(
     return query.order_by(RecordPair.match_score.desc()).offset(offset).limit(limit).all()
 
 
-@router.get("/jobs/{job_id}/export")
-def export_results(
+def get_user_from_token_param(token: str, db: Session) -> User:
+    """Authenticate user from token query parameter (for file downloads)."""
+    credentials_exception = HTTPException(
+        status_code=401,
+        detail="Could not validate credentials"
+    )
+    payload = decode_token(token)
+    if payload is None:
+        raise credentials_exception
+
+    user_id_str = payload.get("sub")
+    if user_id_str is None:
+        raise credentials_exception
+
+    try:
+        user_id = int(user_id_str)
+    except (ValueError, TypeError):
+        raise credentials_exception
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if user is None or not user.is_active:
+        raise credentials_exception
+
+    return user
+
+
+@router.get("/jobs/{job_id}/results/full")
+def get_job_results_with_records(
     job_id: int,
-    format: str = "csv",
+    classification: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0,
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
-):
-    """Export linkage results as CSV."""
+) -> List[Dict[str, Any]]:
+    """Get linkage results with full record values."""
     job = db.query(LinkageJob).filter(LinkageJob.id == job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
     get_project_or_404(job.project_id, current_user, db)
 
-    pairs = db.query(RecordPair).filter(RecordPair.job_id == job_id).all()
+    project = job.project
 
-    # Create CSV
+    # Load datasets
+    datasets = {d.role: d for d in project.datasets}
+
+    if project.linkage_type.value == "deduplication":
+        source_df = pd.read_csv(datasets["dedupe"].file_path)
+        target_df = source_df
+    else:
+        source_df = pd.read_csv(datasets["source"].file_path)
+        target_df = pd.read_csv(datasets["target"].file_path)
+
+    query = db.query(RecordPair).filter(RecordPair.job_id == job_id)
+
+    if classification:
+        query = query.filter(RecordPair.classification == classification)
+
+    pairs = query.order_by(RecordPair.match_score.desc()).offset(offset).limit(limit).all()
+
+    results = []
+    for pair in pairs:
+        left_record = source_df.iloc[pair.left_record_idx].to_dict()
+        right_record = target_df.iloc[pair.right_record_idx].to_dict()
+
+        # Convert numpy types to Python types
+        left_record = {k: (v.item() if hasattr(v, 'item') else v) for k, v in left_record.items()}
+        right_record = {k: (v.item() if hasattr(v, 'item') else v) for k, v in right_record.items()}
+
+        results.append({
+            "id": pair.id,
+            "left_record_idx": pair.left_record_idx,
+            "right_record_idx": pair.right_record_idx,
+            "left_record": left_record,
+            "right_record": right_record,
+            "comparison_vector": pair.comparison_vector,
+            "match_score": pair.match_score,
+            "classification": pair.classification
+        })
+
+    return results
+
+
+@router.get("/jobs/{job_id}/export")
+def export_results(
+    job_id: int,
+    format: str = "csv",
+    token: Optional[str] = Query(None, description="JWT token for authentication (alternative to Authorization header)"),
+    current_user: Optional[User] = Depends(lambda: None),
+    db: Session = Depends(get_db)
+):
+    """Export linkage results as CSV with full record values.
+
+    Supports authentication via either:
+    - Authorization: Bearer <token> header
+    - token query parameter (for direct download links)
+    """
+    # Handle token-based auth for downloads
+    from fastapi import Request
+    from starlette.requests import Request as StarletteRequest
+
+    # Try to get user from token param first if provided
+    if token:
+        current_user = get_user_from_token_param(token, db)
+    else:
+        # Fall back to header-based auth - we need to re-check manually
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required. Provide token parameter for downloads."
+        )
+
+    job = db.query(LinkageJob).filter(LinkageJob.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    get_project_or_404(job.project_id, current_user, db)
+
+    project = job.project
+    pairs = db.query(RecordPair).filter(
+        RecordPair.job_id == job_id,
+        RecordPair.classification == "match"
+    ).all()
+
+    # Load datasets
+    datasets = {d.role: d for d in project.datasets}
+
+    if project.linkage_type.value == "deduplication":
+        source_df = pd.read_csv(datasets["dedupe"].file_path)
+        target_df = source_df
+        source_prefix = "left_"
+        target_prefix = "right_"
+    else:
+        source_df = pd.read_csv(datasets["source"].file_path)
+        target_df = pd.read_csv(datasets["target"].file_path)
+        source_prefix = "source_"
+        target_prefix = "target_"
+
+    # Create CSV with full record values
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(["left_idx", "right_idx", "match_score", "classification"])
+
+    # Build header
+    source_cols = [f"{source_prefix}{col}" for col in source_df.columns]
+    target_cols = [f"{target_prefix}{col}" for col in target_df.columns]
+    header = source_cols + target_cols + ["match_score"]
+    writer.writerow(header)
 
     for pair in pairs:
-        writer.writerow([
-            pair.left_record_idx,
-            pair.right_record_idx,
-            pair.match_score,
-            pair.classification
-        ])
+        left_record = source_df.iloc[pair.left_record_idx].tolist()
+        right_record = target_df.iloc[pair.right_record_idx].tolist()
+        row = left_record + right_record + [pair.match_score]
+        writer.writerow(row)
 
     output.seek(0)
 

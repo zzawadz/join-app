@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from typing import List, Optional
 from datetime import datetime
 import random
@@ -226,7 +227,7 @@ def get_progress(
         raise HTTPException(status_code=404, detail="Session not found")
 
     # Get label distribution
-    labels = db.query(LabeledPair.label, db.func.count(LabeledPair.id)).filter(
+    labels = db.query(LabeledPair.label, func.count(LabeledPair.id)).filter(
         LabeledPair.session_id == session_id
     ).group_by(LabeledPair.label).all()
 

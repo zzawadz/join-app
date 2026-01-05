@@ -25,47 +25,47 @@
 
     <main class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 mt-8">
         <!-- Workflow Steps -->
-        <nav class="mb-8">
+        <nav class="mb-8" id="workflow-steps">
             <ol class="flex items-center justify-center space-x-5">
                 <li class="flex items-center">
-                    <a href="#datasets" class="flex items-center text-sm font-medium text-indigo-600 hover:text-indigo-800">
-                        <span class="flex h-8 w-8 items-center justify-center rounded-full bg-indigo-100 text-indigo-600">1</span>
+                    <a href="#datasets" id="step-1" class="flex items-center text-sm font-medium text-gray-500 hover:text-gray-700">
+                        <span id="step-1-indicator" class="flex h-8 w-8 items-center justify-center rounded-full bg-gray-100 text-gray-600">1</span>
                         <span class="ml-2">Datasets</span>
                     </a>
                 </li>
                 <li class="flex items-center">
-                    <div class="h-0.5 w-8 bg-gray-200"></div>
+                    <div id="connector-1" class="h-0.5 w-8 bg-gray-200"></div>
                 </li>
                 <li class="flex items-center">
                     <a id="link-mapping" href="#" class="flex items-center text-sm font-medium text-gray-500 hover:text-gray-700">
-                        <span class="flex h-8 w-8 items-center justify-center rounded-full bg-gray-100 text-gray-600">2</span>
+                        <span id="step-2-indicator" class="flex h-8 w-8 items-center justify-center rounded-full bg-gray-100 text-gray-600">2</span>
                         <span class="ml-2">Mapping</span>
                     </a>
                 </li>
                 <li class="flex items-center">
-                    <div class="h-0.5 w-8 bg-gray-200"></div>
+                    <div id="connector-2" class="h-0.5 w-8 bg-gray-200"></div>
                 </li>
                 <li class="flex items-center">
                     <a id="link-config" href="#" class="flex items-center text-sm font-medium text-gray-500 hover:text-gray-700">
-                        <span class="flex h-8 w-8 items-center justify-center rounded-full bg-gray-100 text-gray-600">3</span>
+                        <span id="step-3-indicator" class="flex h-8 w-8 items-center justify-center rounded-full bg-gray-100 text-gray-600">3</span>
                         <span class="ml-2">Config</span>
                     </a>
                 </li>
                 <li class="flex items-center">
-                    <div class="h-0.5 w-8 bg-gray-200"></div>
+                    <div id="connector-3" class="h-0.5 w-8 bg-gray-200"></div>
                 </li>
                 <li class="flex items-center">
                     <a id="link-labeling" href="#" class="flex items-center text-sm font-medium text-gray-500 hover:text-gray-700">
-                        <span class="flex h-8 w-8 items-center justify-center rounded-full bg-gray-100 text-gray-600">4</span>
+                        <span id="step-4-indicator" class="flex h-8 w-8 items-center justify-center rounded-full bg-gray-100 text-gray-600">4</span>
                         <span class="ml-2">Labeling</span>
                     </a>
                 </li>
                 <li class="flex items-center">
-                    <div class="h-0.5 w-8 bg-gray-200"></div>
+                    <div id="connector-4" class="h-0.5 w-8 bg-gray-200"></div>
                 </li>
                 <li class="flex items-center">
                     <a id="link-linkage" href="#" class="flex items-center text-sm font-medium text-gray-500 hover:text-gray-700">
-                        <span class="flex h-8 w-8 items-center justify-center rounded-full bg-gray-100 text-gray-600">5</span>
+                        <span id="step-5-indicator" class="flex h-8 w-8 items-center justify-center rounded-full bg-gray-100 text-gray-600">5</span>
                         <span class="ml-2">Run Linkage</span>
                     </a>
                 </li>
@@ -215,6 +215,26 @@
     document.getElementById('btn-labeling').href = `/projects/${projectId}/labeling`;
     document.getElementById('btn-linkage').href = `/projects/${projectId}/linkage`;
 
+    // Checkmark SVG for completed steps
+    const checkmarkSvg = `<svg class="h-5 w-5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>`;
+
+    function updateStepIndicator(stepNum, isCompleted, isOptional = false) {
+        const indicator = document.getElementById(`step-${stepNum}-indicator`);
+        const connector = document.getElementById(`connector-${stepNum}`);
+
+        if (isCompleted) {
+            indicator.innerHTML = checkmarkSvg;
+            indicator.className = 'flex h-8 w-8 items-center justify-center rounded-full bg-green-500 text-white';
+            if (connector) {
+                connector.className = 'h-0.5 w-8 bg-green-500';
+            }
+        } else if (isOptional) {
+            indicator.className = 'flex h-8 w-8 items-center justify-center rounded-full bg-gray-100 text-gray-400 border-2 border-dashed border-gray-300';
+        } else {
+            indicator.className = 'flex h-8 w-8 items-center justify-center rounded-full bg-gray-100 text-gray-600';
+        }
+    }
+
     async function loadProject() {
         try {
             const response = await fetch(`/api/projects/${projectId}`, {
@@ -240,6 +260,42 @@
                 badge.textContent = 'Record Linkage';
                 badge.className = 'inline-flex items-center rounded-full px-3 py-1 text-sm font-medium bg-green-100 text-green-800';
             }
+
+            // Calculate workflow completion status
+            const hasDatasets = project.datasets && project.datasets.length > 0;
+            const hasMapping = project.column_mappings && Object.keys(project.column_mappings).length > 0;
+            const hasConfig = project.comparison_config && Object.keys(project.comparison_config).length > 0;
+
+            // Check for labeling (optional step)
+            let hasLabeling = false;
+            try {
+                const labelingResponse = await fetch(`/api/labeling/projects/${projectId}/sessions`, {
+                    headers: { 'Authorization': 'Bearer ' + getAuthToken() }
+                });
+                if (labelingResponse.ok) {
+                    const sessions = await labelingResponse.json();
+                    hasLabeling = sessions.length > 0;
+                }
+            } catch (e) { /* ignore */ }
+
+            // Check for completed linkage jobs
+            let hasLinkage = false;
+            try {
+                const jobsResponse = await fetch(`/api/linkage/projects/${projectId}/jobs`, {
+                    headers: { 'Authorization': 'Bearer ' + getAuthToken() }
+                });
+                if (jobsResponse.ok) {
+                    const jobs = await jobsResponse.json();
+                    hasLinkage = jobs.some(j => j.status === 'completed');
+                }
+            } catch (e) { /* ignore */ }
+
+            // Update step indicators
+            updateStepIndicator(1, hasDatasets);
+            updateStepIndicator(2, hasMapping);
+            updateStepIndicator(3, hasConfig);
+            updateStepIndicator(4, hasLabeling, true);  // Labeling is optional
+            updateStepIndicator(5, hasLinkage);
 
             // Render datasets
             const datasetsList = document.getElementById('datasets-list');
