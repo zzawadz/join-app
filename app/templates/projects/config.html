@@ -1,0 +1,257 @@
+{% extends "base.html" %}
+
+{% block title %}Comparison Config - Record Linkage{% endblock %}
+
+{% block navbar %}
+{% set active = "projects" %}
+{% include "components/navbar.html" with context %}
+{% endblock %}
+
+{% block content %}
+<div class="py-10">
+    <header class="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
+        <a href="/projects/{{ project_id }}" class="text-sm text-gray-500 hover:text-gray-700 flex items-center">
+            <svg class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+            </svg>
+            Back to Project
+        </a>
+        <h1 class="mt-2 text-2xl font-bold text-gray-900">Comparison Configuration</h1>
+        <p class="mt-1 text-sm text-gray-500">Configure comparison methods and blocking strategy</p>
+    </header>
+
+    <main class="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8 mt-8">
+        <!-- Comparison Methods -->
+        <div class="bg-white shadow rounded-lg mb-6">
+            <div class="px-4 py-5 sm:px-6 border-b border-gray-200">
+                <h3 class="text-base font-semibold leading-6 text-gray-900">Comparison Methods</h3>
+                <p class="mt-1 text-sm text-gray-500">Select how each column should be compared</p>
+            </div>
+            <div class="p-6">
+                <table class="min-w-full">
+                    <thead>
+                        <tr class="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            <th class="pb-3">Column</th>
+                            <th class="pb-3">Method</th>
+                            <th class="pb-3">Threshold</th>
+                        </tr>
+                    </thead>
+                    <tbody id="comparison-config" class="divide-y divide-gray-200">
+                        <tr>
+                            <td colspan="3" class="py-4 text-center text-gray-500">Loading...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Blocking Strategy -->
+        <div class="bg-white shadow rounded-lg mb-6">
+            <div class="px-4 py-5 sm:px-6 border-b border-gray-200">
+                <h3 class="text-base font-semibold leading-6 text-gray-900">Blocking Strategy</h3>
+                <p class="mt-1 text-sm text-gray-500">Reduce comparison space by only comparing records with similar blocking keys</p>
+            </div>
+            <div class="p-6 space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Blocking Method</label>
+                    <select id="blocking-method" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm px-3 py-2 border">
+                        <option value="none">None (compare all pairs - slow for large datasets)</option>
+                        <option value="standard">Standard Blocking</option>
+                        <option value="sorted_neighborhood">Sorted Neighborhood</option>
+                        <option value="phonetic">Phonetic (Soundex)</option>
+                    </select>
+                </div>
+
+                <div id="blocking-keys-section">
+                    <label class="block text-sm font-medium text-gray-700">Blocking Keys</label>
+                    <p class="text-xs text-gray-500 mb-2">Select columns to use as blocking keys. Records must match on these to be compared.</p>
+                    <div id="blocking-keys" class="flex flex-wrap gap-2">
+                        <!-- Populated dynamically -->
+                    </div>
+                </div>
+
+                <div id="window-size-section" class="hidden">
+                    <label class="block text-sm font-medium text-gray-700">Window Size</label>
+                    <input type="number" id="window-size" value="5" min="2" max="50" class="mt-1 w-24 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm px-3 py-2 border">
+                </div>
+            </div>
+        </div>
+
+        <!-- Save Button -->
+        <div class="flex justify-end">
+            <button onclick="saveConfig()" class="inline-flex items-center rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500">
+                Save Configuration
+            </button>
+        </div>
+    </main>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const projectId = {{ project_id }};
+    let mappedColumns = [];
+    let comparators = [];
+    let comparisonConfig = {};
+    let blockingConfig = {};
+
+    if (!isAuthenticated()) {
+        window.location.href = '/login';
+    }
+
+    async function loadData() {
+        try {
+            // Load project
+            const projectResponse = await fetch(`/api/projects/${projectId}`, {
+                headers: { 'Authorization': 'Bearer ' + getAuthToken() }
+            });
+            const project = await projectResponse.json();
+
+            mappedColumns = Object.keys(project.column_mappings || {});
+            comparisonConfig = project.comparison_config || {};
+            blockingConfig = project.blocking_config || {};
+
+            // Load comparators
+            const comparatorsResponse = await fetch(`/api/projects/${projectId}/config/comparators`, {
+                headers: { 'Authorization': 'Bearer ' + getAuthToken() }
+            });
+            const data = await comparatorsResponse.json();
+            comparators = data.comparators;
+
+            renderComparisonConfig();
+            renderBlockingConfig();
+        } catch (error) {
+            console.error('Failed to load data:', error);
+        }
+    }
+
+    function renderComparisonConfig() {
+        const tbody = document.getElementById('comparison-config');
+
+        if (mappedColumns.length === 0) {
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="3" class="py-4 text-center text-gray-500">
+                        No columns mapped. <a href="/projects/${projectId}/mapping" class="text-indigo-600">Configure mappings first</a>
+                    </td>
+                </tr>
+            `;
+            return;
+        }
+
+        tbody.innerHTML = mappedColumns.map(col => {
+            const config = comparisonConfig[col] || { method: 'jaro_winkler', threshold: 0.85 };
+            const comparator = comparators.find(c => c.id === config.method) || comparators[0];
+
+            return `
+                <tr>
+                    <td class="py-3 font-medium text-gray-900">${col}</td>
+                    <td class="py-3">
+                        <select onchange="updateComparison('${col}', 'method', this.value)" class="rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+                            ${comparators.map(c => `<option value="${c.id}" ${config.method === c.id ? 'selected' : ''}>${c.name}</option>`).join('')}
+                        </select>
+                    </td>
+                    <td class="py-3">
+                        <input type="number" step="0.05" min="0" max="1" value="${config.threshold || 0.85}"
+                               onchange="updateComparison('${col}', 'threshold', this.value)"
+                               class="w-20 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm px-2 py-1 border"
+                               ${!comparator.has_threshold ? 'disabled' : ''}>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    }
+
+    function updateComparison(column, field, value) {
+        if (!comparisonConfig[column]) {
+            comparisonConfig[column] = {};
+        }
+        comparisonConfig[column][field] = field === 'threshold' ? parseFloat(value) : value;
+    }
+
+    function renderBlockingConfig() {
+        // Set blocking method
+        document.getElementById('blocking-method').value = blockingConfig.method || 'none';
+
+        // Render blocking keys
+        const keysDiv = document.getElementById('blocking-keys');
+        const selectedKeys = blockingConfig.blocking_keys || [];
+
+        keysDiv.innerHTML = mappedColumns.map(col => `
+            <label class="inline-flex items-center px-3 py-1.5 rounded-full border cursor-pointer ${selectedKeys.includes(col) ? 'bg-indigo-100 border-indigo-500 text-indigo-700' : 'bg-gray-50 border-gray-300 text-gray-700 hover:bg-gray-100'}">
+                <input type="checkbox" class="sr-only blocking-key-checkbox" value="${col}" ${selectedKeys.includes(col) ? 'checked' : ''} onchange="toggleBlockingKey('${col}', this.checked)">
+                ${col}
+            </label>
+        `).join('');
+
+        // Set window size
+        if (blockingConfig.window_size) {
+            document.getElementById('window-size').value = blockingConfig.window_size;
+        }
+
+        updateBlockingUI();
+    }
+
+    function toggleBlockingKey(column, checked) {
+        if (!blockingConfig.blocking_keys) {
+            blockingConfig.blocking_keys = [];
+        }
+
+        if (checked) {
+            if (!blockingConfig.blocking_keys.includes(column)) {
+                blockingConfig.blocking_keys.push(column);
+            }
+        } else {
+            blockingConfig.blocking_keys = blockingConfig.blocking_keys.filter(k => k !== column);
+        }
+
+        renderBlockingConfig();
+    }
+
+    document.getElementById('blocking-method').addEventListener('change', function() {
+        blockingConfig.method = this.value;
+        updateBlockingUI();
+    });
+
+    function updateBlockingUI() {
+        const method = document.getElementById('blocking-method').value;
+        document.getElementById('blocking-keys-section').classList.toggle('hidden', method === 'none');
+        document.getElementById('window-size-section').classList.toggle('hidden', method !== 'sorted_neighborhood');
+    }
+
+    async function saveConfig() {
+        try {
+            // Save comparison config
+            await fetch(`/api/projects/${projectId}/config/comparisons`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + getAuthToken()
+                },
+                body: JSON.stringify({ config: comparisonConfig })
+            });
+
+            // Save blocking config
+            blockingConfig.method = document.getElementById('blocking-method').value;
+            if (blockingConfig.method === 'sorted_neighborhood') {
+                blockingConfig.window_size = parseInt(document.getElementById('window-size').value);
+            }
+
+            await fetch(`/api/projects/${projectId}/config/blocking`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + getAuthToken()
+                },
+                body: JSON.stringify({ config: blockingConfig })
+            });
+
+            showToast('Configuration saved', 'success');
+        } catch (error) {
+            showToast('Failed to save configuration', 'error');
+        }
+    }
+
+    loadData();
+</script>
+{% endblock %}

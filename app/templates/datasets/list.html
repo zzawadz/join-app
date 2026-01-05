@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+
+{% block title %}Datasets - Record Linkage{% endblock %}
+
+{% block navbar %}
+{% set active = "datasets" %}
+{% include "components/navbar.html" with context %}
+{% endblock %}
+
+{% block content %}
+<div class="py-10">
+    <header class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+        <div class="md:flex md:items-center md:justify-between">
+            <h1 class="text-2xl font-bold text-gray-900">Datasets</h1>
+            <a href="/datasets/upload" class="inline-flex items-center rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500">
+                <svg class="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                </svg>
+                Upload Dataset
+            </a>
+        </div>
+    </header>
+
+    <main class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 mt-8">
+        <div id="datasets-list" class="bg-white shadow rounded-lg divide-y divide-gray-200">
+            <div class="p-8 text-center text-gray-500">Loading datasets...</div>
+        </div>
+    </main>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    if (!isAuthenticated()) {
+        window.location.href = '/login';
+    }
+
+    async function loadDatasets() {
+        try {
+            const response = await fetch('/api/datasets', {
+                headers: { 'Authorization': 'Bearer ' + getAuthToken() }
+            });
+            const datasets = await response.json();
+
+            const container = document.getElementById('datasets-list');
+
+            if (datasets.length === 0) {
+                container.innerHTML = `
+                    <div class="p-8 text-center text-gray-500">
+                        <p>No datasets uploaded yet.</p>
+                        <a href="/datasets/upload" class="mt-2 inline-block text-indigo-600 hover:text-indigo-500">Upload your first dataset</a>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = datasets.map(ds => `
+                <a href="/datasets/${ds.id}" class="block hover:bg-gray-50">
+                    <div class="px-4 py-4 sm:px-6">
+                        <div class="flex items-center justify-between">
+                            <p class="truncate text-sm font-medium text-indigo-600">${ds.name}</p>
+                            <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-gray-100 text-gray-800">${ds.role}</span>
+                        </div>
+                        <div class="mt-2 sm:flex sm:justify-between">
+                            <div class="sm:flex text-sm text-gray-500">
+                                <p>${ds.row_count?.toLocaleString() || '?'} rows</p>
+                                <p class="sm:ml-4">${ds.column_names?.length || '?'} columns</p>
+                                <p class="sm:ml-4">${ds.original_filename || ''}</p>
+                            </div>
+                            <div class="mt-2 flex items-center text-sm text-gray-500 sm:mt-0">
+                                ${new Date(ds.created_at).toLocaleDateString()}
+                            </div>
+                        </div>
+                    </div>
+                </a>
+            `).join('');
+        } catch (error) {
+            console.error('Failed to load datasets:', error);
+        }
+    }
+
+    loadDatasets();
+</script>
+{% endblock %}

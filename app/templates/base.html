@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-gray-50">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Record Linkage{% endblock %}</title>
+
+    <!-- Tailwind CSS via CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- HTMX -->
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+
+    <!-- Custom styles -->
+    <style>
+        [x-cloak] { display: none !important; }
+        .htmx-indicator { display: none; }
+        .htmx-request .htmx-indicator { display: inline-block; }
+        .htmx-request.htmx-indicator { display: inline-block; }
+    </style>
+
+    {% block head %}{% endblock %}
+</head>
+<body class="h-full" hx-headers='{"X-Requested-With": "XMLHttpRequest"}'>
+    {% block body %}
+    <div class="min-h-full">
+        {% block navbar %}
+        <!-- Navigation will be included for authenticated pages -->
+        {% endblock %}
+
+        <main>
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+    {% endblock %}
+
+    <!-- Toast notifications container -->
+    <div id="toast-container" class="fixed top-4 right-4 z-50 space-y-2"></div>
+
+    <script>
+        // Store auth token
+        const AUTH_TOKEN_KEY = 'auth_token';
+
+        function getAuthToken() {
+            return localStorage.getItem(AUTH_TOKEN_KEY);
+        }
+
+        function setAuthToken(token) {
+            localStorage.setItem(AUTH_TOKEN_KEY, token);
+        }
+
+        function removeAuthToken() {
+            localStorage.removeItem(AUTH_TOKEN_KEY);
+        }
+
+        function isAuthenticated() {
+            return !!getAuthToken();
+        }
+
+        // Add auth header to HTMX requests
+        document.body.addEventListener('htmx:configRequest', function(event) {
+            const token = getAuthToken();
+            if (token) {
+                event.detail.headers['Authorization'] = 'Bearer ' + token;
+            }
+        });
+
+        // Handle 401 responses
+        document.body.addEventListener('htmx:responseError', function(event) {
+            if (event.detail.xhr.status === 401) {
+                removeAuthToken();
+                window.location.href = '/login';
+            }
+        });
+
+        // Toast notification function
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toast-container');
+            const colors = {
+                'success': 'bg-green-500',
+                'error': 'bg-red-500',
+                'warning': 'bg-yellow-500',
+                'info': 'bg-blue-500'
+            };
+
+            const toast = document.createElement('div');
+            toast.className = `${colors[type]} text-white px-6 py-3 rounded-lg shadow-lg transform transition-all duration-300 translate-x-full`;
+            toast.textContent = message;
+
+            container.appendChild(toast);
+
+            // Animate in
+            setTimeout(() => toast.classList.remove('translate-x-full'), 10);
+
+            // Remove after 3 seconds
+            setTimeout(() => {
+                toast.classList.add('translate-x-full');
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+    </script>
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>

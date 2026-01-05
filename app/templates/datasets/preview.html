@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+
+{% block title %}Dataset Preview - Record Linkage{% endblock %}
+
+{% block navbar %}
+{% set active = "datasets" %}
+{% include "components/navbar.html" with context %}
+{% endblock %}
+
+{% block content %}
+<div class="py-10">
+    <header class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+        <a href="/datasets" class="text-sm text-gray-500 hover:text-gray-700 flex items-center">
+            <svg class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+            </svg>
+            Back to Datasets
+        </a>
+        <div class="mt-2 flex items-center justify-between">
+            <h1 id="dataset-name" class="text-2xl font-bold text-gray-900">Loading...</h1>
+            <button onclick="deleteDataset()" class="inline-flex items-center rounded-md bg-red-100 px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-200">
+                Delete
+            </button>
+        </div>
+        <div id="dataset-info" class="mt-2 text-sm text-gray-500"></div>
+    </header>
+
+    <main class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 mt-8">
+        <!-- Column Info -->
+        <div class="bg-white shadow rounded-lg mb-6">
+            <div class="px-4 py-5 sm:px-6 border-b border-gray-200">
+                <h3 class="text-base font-semibold leading-6 text-gray-900">Columns</h3>
+            </div>
+            <div id="columns-info" class="p-4">
+                <div class="flex flex-wrap gap-2" id="column-badges">
+                    Loading...
+                </div>
+            </div>
+        </div>
+
+        <!-- Data Preview -->
+        <div class="bg-white shadow rounded-lg overflow-hidden">
+            <div class="px-4 py-5 sm:px-6 border-b border-gray-200">
+                <h3 class="text-base font-semibold leading-6 text-gray-900">Data Preview</h3>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50" id="preview-header">
+                    </thead>
+                    <tbody class="bg-white divide-y divide-gray-200" id="preview-body">
+                        <tr>
+                            <td class="px-6 py-4 text-center text-gray-500" colspan="10">Loading...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const datasetId = {{ dataset_id }};
+
+    if (!isAuthenticated()) {
+        window.location.href = '/login';
+    }
+
+    async function loadDataset() {
+        try {
+            const response = await fetch(`/api/datasets/${datasetId}/preview?rows=20`, {
+                headers: { 'Authorization': 'Bearer ' + getAuthToken() }
+            });
+
+            if (response.status === 404) {
+                showToast('Dataset not found', 'error');
+                window.location.href = '/datasets';
+                return;
+            }
+
+            const dataset = await response.json();
+
+            document.getElementById('dataset-name').textContent = dataset.name;
+            document.getElementById('dataset-info').textContent = `${dataset.row_count?.toLocaleString() || '?'} rows, ${dataset.column_names?.length || '?'} columns`;
+
+            // Column badges
+            const badgesDiv = document.getElementById('column-badges');
+            badgesDiv.innerHTML = dataset.column_names.map(col => `
+                <span class="inline-flex items-center rounded-full bg-indigo-100 px-3 py-1 text-sm font-medium text-indigo-700">
+                    ${col}
+                </span>
+            `).join('');
+
+            // Table header
+            const thead = document.getElementById('preview-header');
+            thead.innerHTML = `
+                <tr>
+                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">#</th>
+                    ${dataset.column_names.map(col => `
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${col}</th>
+                    `).join('')}
+                </tr>
+            `;
+
+            // Table body
+            const tbody = document.getElementById('preview-body');
+            tbody.innerHTML = dataset.sample_data.map((row, idx) => `
+                <tr class="${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}">
+                    <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-400">${idx + 1}</td>
+                    ${dataset.column_names.map(col => `
+                        <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-900">${row[col] ?? '<span class="text-gray-400">null</span>'}</td>
+                    `).join('')}
+                </tr>
+            `).join('');
+
+        } catch (error) {
+            console.error('Failed to load dataset:', error);
+        }
+    }
+
+    async function deleteDataset() {
+        if (!confirm('Are you sure you want to delete this dataset?')) return;
+
+        try {
+            const response = await fetch(`/api/datasets/${datasetId}`, {
+                method: 'DELETE',
+                headers: { 'Authorization': 'Bearer ' + getAuthToken() }
+            });
+
+            if (response.ok) {
+                showToast('Dataset deleted', 'success');
+                window.location.href = '/datasets';
+            } else {
+                showToast('Failed to delete dataset', 'error');
+            }
+        } catch (error) {
+            showToast('An error occurred', 'error');
+        }
+    }
+
+    loadDataset();
+</script>
+{% endblock %}

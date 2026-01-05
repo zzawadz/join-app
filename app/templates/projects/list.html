@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+
+{% block title %}Projects - Record Linkage{% endblock %}
+
+{% block navbar %}
+{% set active = "projects" %}
+{% include "components/navbar.html" with context %}
+{% endblock %}
+
+{% block content %}
+<div class="py-10">
+    <header class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+        <div class="md:flex md:items-center md:justify-between">
+            <h1 class="text-2xl font-bold text-gray-900">Projects</h1>
+            <a href="/projects/new" class="inline-flex items-center rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500">
+                <svg class="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                </svg>
+                New Project
+            </a>
+        </div>
+    </header>
+
+    <main class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 mt-8">
+        <div id="projects-list" class="bg-white shadow rounded-lg divide-y divide-gray-200">
+            <div class="p-8 text-center text-gray-500">Loading projects...</div>
+        </div>
+    </main>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    if (!isAuthenticated()) {
+        window.location.href = '/login';
+    }
+
+    async function loadProjects() {
+        try {
+            const response = await fetch('/api/projects', {
+                headers: { 'Authorization': 'Bearer ' + getAuthToken() }
+            });
+            const projects = await response.json();
+
+            const container = document.getElementById('projects-list');
+
+            if (projects.length === 0) {
+                container.innerHTML = `
+                    <div class="p-8 text-center text-gray-500">
+                        <p>No projects yet.</p>
+                        <a href="/projects/new" class="mt-2 inline-block text-indigo-600 hover:text-indigo-500">Create your first project</a>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = projects.map(project => `
+                <a href="/projects/${project.id}" class="block hover:bg-gray-50">
+                    <div class="px-4 py-4 sm:px-6">
+                        <div class="flex items-center justify-between">
+                            <p class="truncate text-sm font-medium text-indigo-600">${project.name}</p>
+                            <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${project.linkage_type === 'deduplication' ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800'}">
+                                ${project.linkage_type === 'deduplication' ? 'Deduplication' : 'Linkage'}
+                            </span>
+                        </div>
+                        <div class="mt-2 sm:flex sm:justify-between">
+                            <div class="sm:flex text-sm text-gray-500">
+                                <p>${project.description || 'No description'}</p>
+                            </div>
+                            <div class="mt-2 flex items-center text-sm text-gray-500 sm:mt-0">
+                                Created ${new Date(project.created_at).toLocaleDateString()}
+                            </div>
+                        </div>
+                    </div>
+                </a>
+            `).join('');
+        } catch (error) {
+            console.error('Failed to load projects:', error);
+        }
+    }
+
+    loadProjects();
+</script>
+{% endblock %}

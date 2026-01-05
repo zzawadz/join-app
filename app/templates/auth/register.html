@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+
+{% block title %}Register - Record Linkage{% endblock %}
+
+{% block body %}
+<div class="flex min-h-full flex-col justify-center py-12 sm:px-6 lg:px-8">
+    <div class="sm:mx-auto sm:w-full sm:max-w-md">
+        <h1 class="text-center text-3xl font-bold text-indigo-600">RecordLink</h1>
+        <h2 class="mt-6 text-center text-2xl font-bold leading-9 tracking-tight text-gray-900">
+            Create your account
+        </h2>
+    </div>
+
+    <div class="mt-10 sm:mx-auto sm:w-full sm:max-w-[480px]">
+        <div class="bg-white px-6 py-12 shadow sm:rounded-lg sm:px-12">
+            <form id="register-form" class="space-y-6">
+                <div>
+                    <label for="full_name" class="block text-sm font-medium leading-6 text-gray-900">
+                        Full name
+                    </label>
+                    <div class="mt-2">
+                        <input id="full_name" name="full_name" type="text" autocomplete="name"
+                               class="block w-full rounded-md border-0 py-1.5 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6 px-3">
+                    </div>
+                </div>
+
+                <div>
+                    <label for="email" class="block text-sm font-medium leading-6 text-gray-900">
+                        Email address
+                    </label>
+                    <div class="mt-2">
+                        <input id="email" name="email" type="email" autocomplete="email" required
+                               class="block w-full rounded-md border-0 py-1.5 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6 px-3">
+                    </div>
+                </div>
+
+                <div>
+                    <label for="password" class="block text-sm font-medium leading-6 text-gray-900">
+                        Password
+                    </label>
+                    <div class="mt-2">
+                        <input id="password" name="password" type="password" autocomplete="new-password" required minlength="8"
+                               class="block w-full rounded-md border-0 py-1.5 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6 px-3">
+                    </div>
+                    <p class="mt-1 text-xs text-gray-500">At least 8 characters</p>
+                </div>
+
+                <div>
+                    <label for="confirm_password" class="block text-sm font-medium leading-6 text-gray-900">
+                        Confirm password
+                    </label>
+                    <div class="mt-2">
+                        <input id="confirm_password" name="confirm_password" type="password" required
+                               class="block w-full rounded-md border-0 py-1.5 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6 px-3">
+                    </div>
+                </div>
+
+                <div id="error-message" class="hidden text-sm text-red-600 bg-red-50 p-3 rounded-md"></div>
+
+                <div>
+                    <button type="submit"
+                            class="flex w-full justify-center rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-semibold leading-6 text-white shadow-sm hover:bg-indigo-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600">
+                        <span id="btn-text">Create account</span>
+                        <svg id="btn-spinner" class="hidden animate-spin ml-2 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <p class="mt-10 text-center text-sm text-gray-500">
+            Already have an account?
+            <a href="/login" class="font-semibold leading-6 text-indigo-600 hover:text-indigo-500">
+                Sign in
+            </a>
+        </p>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.getElementById('register-form').addEventListener('submit', async function(e) {
+        e.preventDefault();
+
+        const fullName = document.getElementById('full_name').value;
+        const email = document.getElementById('email').value;
+        const password = document.getElementById('password').value;
+        const confirmPassword = document.getElementById('confirm_password').value;
+        const errorDiv = document.getElementById('error-message');
+        const btnText = document.getElementById('btn-text');
+        const btnSpinner = document.getElementById('btn-spinner');
+
+        // Validate passwords match
+        if (password !== confirmPassword) {
+            errorDiv.textContent = 'Passwords do not match';
+            errorDiv.classList.remove('hidden');
+            return;
+        }
+
+        // Show loading
+        btnText.textContent = 'Creating account...';
+        btnSpinner.classList.remove('hidden');
+        errorDiv.classList.add('hidden');
+
+        try {
+            const response = await fetch('/api/auth/register', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    email: email,
+                    password: password,
+                    full_name: fullName || null
+                })
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+                // Auto-login after registration
+                const loginResponse = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    body: new URLSearchParams({
+                        username: email,
+                        password: password
+                    })
+                });
+
+                const loginData = await loginResponse.json();
+
+                if (loginResponse.ok) {
+                    setAuthToken(loginData.access_token);
+                    window.location.href = '/dashboard';
+                } else {
+                    window.location.href = '/login';
+                }
+            } else {
+                errorDiv.textContent = data.detail || 'Registration failed';
+                errorDiv.classList.remove('hidden');
+            }
+        } catch (error) {
+            errorDiv.textContent = 'An error occurred. Please try again.';
+            errorDiv.classList.remove('hidden');
+        } finally {
+            btnText.textContent = 'Create account';
+            btnSpinner.classList.add('hidden');
+        }
+    });
+</script>
+{% endblock %}

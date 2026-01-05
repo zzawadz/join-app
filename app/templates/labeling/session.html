@@ -1,0 +1,413 @@
+{% extends "base.html" %}
+
+{% block title %}Active Learning - Record Linkage{% endblock %}
+
+{% block navbar %}
+{% set active = "projects" %}
+{% include "components/navbar.html" with context %}
+{% endblock %}
+
+{% block content %}
+<div class="py-10">
+    <header class="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
+        <div class="flex items-center justify-between">
+            <div>
+                <a href="/projects/{{ project_id }}" class="text-sm text-gray-500 hover:text-gray-700 flex items-center">
+                    <svg class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+                    </svg>
+                    Back to Project
+                </a>
+                <h1 class="mt-2 text-2xl font-bold text-gray-900">Active Learning</h1>
+                <p class="mt-1 text-sm text-gray-500">Label record pairs to train the matching model</p>
+            </div>
+            <div id="session-controls" class="hidden">
+                <button onclick="retrainModel()" class="inline-flex items-center rounded-md bg-green-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-green-500 mr-2">
+                    <svg class="h-4 w-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    Retrain Model
+                </button>
+                <button onclick="completeSession()" class="inline-flex items-center rounded-md bg-gray-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-gray-500">
+                    Complete Session
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main class="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8 mt-8">
+        <!-- Progress Bar -->
+        <div id="progress-section" class="mb-6 bg-white rounded-lg shadow p-4">
+            <div class="flex justify-between text-sm text-gray-600 mb-2">
+                <span>Progress: <span id="labeled-count">0</span> / <span id="target-count">100</span> pairs labeled</span>
+                <span id="progress-percent">0%</span>
+            </div>
+            <div class="w-full bg-gray-200 rounded-full h-2.5">
+                <div id="progress-bar" class="bg-indigo-600 h-2.5 rounded-full transition-all duration-300" style="width: 0%"></div>
+            </div>
+            <div class="mt-2 flex justify-between text-xs text-gray-500">
+                <span>Matches: <span id="match-count" class="text-green-600 font-medium">0</span></span>
+                <span>Non-matches: <span id="non-match-count" class="text-red-600 font-medium">0</span></span>
+                <span>Uncertain: <span id="uncertain-count" class="text-yellow-600 font-medium">0</span></span>
+            </div>
+        </div>
+
+        <!-- Start Session (shown initially) -->
+        <div id="start-section" class="bg-white rounded-lg shadow p-8 text-center">
+            <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+            </svg>
+            <h3 class="mt-4 text-lg font-medium text-gray-900">Start Labeling Session</h3>
+            <p class="mt-2 text-sm text-gray-500">You'll be shown pairs of records to classify as matches or non-matches.</p>
+            <div class="mt-6 flex justify-center space-x-4">
+                <div>
+                    <label for="strategy" class="block text-sm font-medium text-gray-700">Strategy</label>
+                    <select id="strategy" class="mt-1 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm px-3 py-2 border">
+                        <option value="uncertainty">Uncertainty Sampling</option>
+                        <option value="random">Random</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="target-labels" class="block text-sm font-medium text-gray-700">Target Labels</label>
+                    <input type="number" id="target-labels" value="100" min="10" max="1000" class="mt-1 w-24 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm px-3 py-2 border">
+                </div>
+            </div>
+            <button onclick="startSession()" class="mt-6 inline-flex items-center rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500">
+                Start Labeling
+            </button>
+        </div>
+
+        <!-- Labeling Card (hidden initially) -->
+        <div id="labeling-section" class="hidden">
+            <!-- Record Pair Card -->
+            <div class="bg-white rounded-lg shadow overflow-hidden">
+                <div class="grid grid-cols-2 divide-x divide-gray-200">
+                    <!-- Left Record -->
+                    <div class="p-6">
+                        <h3 class="text-sm font-medium text-gray-500 uppercase tracking-wide mb-4">Record A</h3>
+                        <div id="left-record" class="space-y-3">
+                            <!-- Populated dynamically -->
+                        </div>
+                    </div>
+                    <!-- Right Record -->
+                    <div class="p-6">
+                        <h3 class="text-sm font-medium text-gray-500 uppercase tracking-wide mb-4">Record B</h3>
+                        <div id="right-record" class="space-y-3">
+                            <!-- Populated dynamically -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Similarity Scores -->
+                <div class="border-t border-gray-200 px-6 py-4 bg-gray-50">
+                    <h4 class="text-sm font-medium text-gray-700 mb-3">Similarity Scores</h4>
+                    <div id="similarity-scores" class="flex flex-wrap gap-2">
+                        <!-- Populated dynamically -->
+                    </div>
+                </div>
+
+                <!-- Action Buttons -->
+                <div class="border-t border-gray-200 px-6 py-4 bg-white">
+                    <div class="flex justify-center space-x-4">
+                        <button onclick="submitLabel('non_match')" class="inline-flex items-center rounded-md bg-red-100 px-6 py-3 text-sm font-semibold text-red-700 hover:bg-red-200 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2">
+                            <svg class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                            Not a Match (N)
+                        </button>
+                        <button onclick="submitLabel('uncertain')" class="inline-flex items-center rounded-md bg-yellow-100 px-6 py-3 text-sm font-semibold text-yellow-700 hover:bg-yellow-200 focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:ring-offset-2">
+                            <svg class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            Uncertain (U)
+                        </button>
+                        <button onclick="submitLabel('match')" class="inline-flex items-center rounded-md bg-green-100 px-6 py-3 text-sm font-semibold text-green-700 hover:bg-green-200 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2">
+                            <svg class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                            </svg>
+                            Match (Y)
+                        </button>
+                    </div>
+                    <p class="text-center text-xs text-gray-500 mt-3">
+                        Keyboard shortcuts: <kbd class="px-1.5 py-0.5 bg-gray-100 rounded">Y</kbd> Match,
+                        <kbd class="px-1.5 py-0.5 bg-gray-100 rounded">N</kbd> Not Match,
+                        <kbd class="px-1.5 py-0.5 bg-gray-100 rounded">U</kbd> Uncertain,
+                        <kbd class="px-1.5 py-0.5 bg-gray-100 rounded">S</kbd> Skip
+                    </p>
+                </div>
+            </div>
+
+            <!-- Loading indicator -->
+            <div id="loading-pair" class="hidden text-center py-8">
+                <svg class="animate-spin h-8 w-8 text-indigo-600 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <p class="mt-2 text-gray-600">Loading next pair...</p>
+            </div>
+
+            <!-- No more pairs -->
+            <div id="no-pairs" class="hidden bg-white rounded-lg shadow p-8 text-center">
+                <svg class="mx-auto h-12 w-12 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <h3 class="mt-4 text-lg font-medium text-gray-900">All pairs labeled!</h3>
+                <p class="mt-2 text-sm text-gray-500">You can now train a model or continue with linkage.</p>
+                <div class="mt-6 space-x-3">
+                    <button onclick="retrainModel()" class="inline-flex items-center rounded-md bg-green-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-green-500">
+                        Train Model
+                    </button>
+                    <a href="/projects/{{ project_id }}/linkage" class="inline-flex items-center rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500">
+                        Run Linkage
+                    </a>
+                </div>
+            </div>
+        </div>
+    </main>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const projectId = {{ project_id }};
+    let sessionId = null;
+    let currentPair = null;
+    let labelStartTime = null;
+
+    if (!isAuthenticated()) {
+        window.location.href = '/login';
+    }
+
+    // Keyboard shortcuts
+    document.addEventListener('keydown', function(e) {
+        if (!currentPair) return;
+
+        switch(e.key.toLowerCase()) {
+            case 'y':
+                submitLabel('match');
+                break;
+            case 'n':
+                submitLabel('non_match');
+                break;
+            case 'u':
+                submitLabel('uncertain');
+                break;
+            case 's':
+                skipPair();
+                break;
+        }
+    });
+
+    async function startSession() {
+        const strategy = document.getElementById('strategy').value;
+        const targetLabels = document.getElementById('target-labels').value;
+
+        try {
+            const response = await fetch(`/api/labeling/projects/${projectId}/start`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + getAuthToken()
+                },
+                body: JSON.stringify({
+                    strategy: strategy,
+                    target_labels: parseInt(targetLabels)
+                })
+            });
+
+            if (response.ok) {
+                const session = await response.json();
+                sessionId = session.id;
+
+                document.getElementById('start-section').classList.add('hidden');
+                document.getElementById('labeling-section').classList.remove('hidden');
+                document.getElementById('session-controls').classList.remove('hidden');
+                document.getElementById('target-count').textContent = session.target_labels;
+
+                loadNextPair();
+            } else {
+                const data = await response.json();
+                showToast(data.detail || 'Failed to start session', 'error');
+            }
+        } catch (error) {
+            showToast('An error occurred', 'error');
+        }
+    }
+
+    async function loadNextPair() {
+        document.getElementById('loading-pair').classList.remove('hidden');
+
+        try {
+            const response = await fetch(`/api/labeling/sessions/${sessionId}/next`, {
+                headers: { 'Authorization': 'Bearer ' + getAuthToken() }
+            });
+
+            document.getElementById('loading-pair').classList.add('hidden');
+
+            if (response.status === 204) {
+                // No more pairs
+                document.getElementById('no-pairs').classList.remove('hidden');
+                currentPair = null;
+                return;
+            }
+
+            if (response.ok) {
+                currentPair = await response.json();
+                labelStartTime = Date.now();
+                renderPair(currentPair);
+            } else {
+                const data = await response.json();
+                showToast(data.detail || 'Failed to load pair', 'error');
+            }
+        } catch (error) {
+            document.getElementById('loading-pair').classList.add('hidden');
+            showToast('An error occurred', 'error');
+        }
+    }
+
+    function renderPair(pair) {
+        const leftRecord = document.getElementById('left-record');
+        const rightRecord = document.getElementById('right-record');
+        const scoresDiv = document.getElementById('similarity-scores');
+
+        // Render records
+        const mappedColumns = Object.keys(pair.column_mappings);
+
+        leftRecord.innerHTML = renderRecord(pair.left_record, mappedColumns);
+        rightRecord.innerHTML = renderRecord(pair.right_record, mappedColumns.map(c => pair.column_mappings[c]));
+
+        // Render similarity scores
+        scoresDiv.innerHTML = Object.entries(pair.comparison_vector).map(([col, score]) => {
+            const percent = Math.round(score * 100);
+            let colorClass = 'bg-gray-100 text-gray-800';
+            if (percent >= 90) colorClass = 'bg-green-100 text-green-800';
+            else if (percent >= 70) colorClass = 'bg-yellow-100 text-yellow-800';
+            else if (percent < 50) colorClass = 'bg-red-100 text-red-800';
+
+            return `<span class="inline-flex items-center rounded-full px-3 py-1 text-sm font-medium ${colorClass}">
+                ${col}: ${percent}%
+            </span>`;
+        }).join('');
+    }
+
+    function renderRecord(record, highlightColumns) {
+        return Object.entries(record)
+            .filter(([key]) => key !== '_idx')
+            .map(([key, value]) => {
+                const isHighlight = highlightColumns.includes(key);
+                return `<div class="flex justify-between ${isHighlight ? 'bg-indigo-50 -mx-2 px-2 py-1 rounded' : ''}">
+                    <span class="text-sm font-medium text-gray-500">${key}</span>
+                    <span class="text-sm text-gray-900 ${isHighlight ? 'font-medium' : ''}">${value ?? '<em class="text-gray-400">null</em>'}</span>
+                </div>`;
+            }).join('');
+    }
+
+    async function submitLabel(label) {
+        if (!currentPair || !sessionId) return;
+
+        const labelingTime = Date.now() - labelStartTime;
+
+        try {
+            const response = await fetch(`/api/labeling/sessions/${sessionId}/label`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + getAuthToken()
+                },
+                body: JSON.stringify({
+                    left_record: currentPair.left_record,
+                    right_record: currentPair.right_record,
+                    comparison_vector: currentPair.comparison_vector,
+                    label: label,
+                    labeling_time_ms: labelingTime
+                })
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                updateProgress(data.total_labeled, data.target_labels);
+                loadNextPair();
+            } else {
+                showToast('Failed to save label', 'error');
+            }
+        } catch (error) {
+            showToast('An error occurred', 'error');
+        }
+    }
+
+    async function skipPair() {
+        if (!sessionId) return;
+
+        await fetch(`/api/labeling/sessions/${sessionId}/skip`, {
+            method: 'POST',
+            headers: { 'Authorization': 'Bearer ' + getAuthToken() }
+        });
+
+        loadNextPair();
+    }
+
+    function updateProgress(labeled, target) {
+        document.getElementById('labeled-count').textContent = labeled;
+        const percent = Math.round((labeled / target) * 100);
+        document.getElementById('progress-percent').textContent = percent + '%';
+        document.getElementById('progress-bar').style.width = percent + '%';
+
+        // Update counts
+        loadProgressDetails();
+    }
+
+    async function loadProgressDetails() {
+        if (!sessionId) return;
+
+        try {
+            const response = await fetch(`/api/labeling/sessions/${sessionId}/progress`, {
+                headers: { 'Authorization': 'Bearer ' + getAuthToken() }
+            });
+
+            if (response.ok) {
+                const progress = await response.json();
+                document.getElementById('match-count').textContent = progress.matches;
+                document.getElementById('non-match-count').textContent = progress.non_matches;
+                document.getElementById('uncertain-count').textContent = progress.uncertain;
+            }
+        } catch (error) {
+            // Silently fail
+        }
+    }
+
+    async function retrainModel() {
+        if (!sessionId) return;
+
+        try {
+            const response = await fetch(`/api/labeling/sessions/${sessionId}/retrain`, {
+                method: 'POST',
+                headers: { 'Authorization': 'Bearer ' + getAuthToken() }
+            });
+
+            if (response.ok) {
+                showToast('Model retraining started', 'success');
+            } else {
+                const data = await response.json();
+                showToast(data.detail || 'Failed to start retraining', 'error');
+            }
+        } catch (error) {
+            showToast('An error occurred', 'error');
+        }
+    }
+
+    async function completeSession() {
+        if (!sessionId) return;
+
+        try {
+            await fetch(`/api/labeling/sessions/${sessionId}/complete`, {
+                method: 'POST',
+                headers: { 'Authorization': 'Bearer ' + getAuthToken() }
+            });
+
+            window.location.href = `/projects/${projectId}`;
+        } catch (error) {
+            showToast('An error occurred', 'error');
+        }
+    }
+</script>
+{% endblock %}

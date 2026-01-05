@@ -1,0 +1,105 @@
+<nav class="bg-white shadow-sm border-b border-gray-200">
+    <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+        <div class="flex h-16 justify-between">
+            <div class="flex">
+                <div class="flex flex-shrink-0 items-center">
+                    <a href="/dashboard" class="text-xl font-bold text-indigo-600">
+                        RecordLink
+                    </a>
+                </div>
+                <div class="hidden sm:ml-8 sm:flex sm:space-x-8">
+                    <a href="/dashboard"
+                       class="inline-flex items-center border-b-2 {% if active == 'dashboard' %}border-indigo-500 text-gray-900{% else %}border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700{% endif %} px-1 pt-1 text-sm font-medium">
+                        Dashboard
+                    </a>
+                    <a href="/projects"
+                       class="inline-flex items-center border-b-2 {% if active == 'projects' %}border-indigo-500 text-gray-900{% else %}border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700{% endif %} px-1 pt-1 text-sm font-medium">
+                        Projects
+                    </a>
+                    <a href="/datasets"
+                       class="inline-flex items-center border-b-2 {% if active == 'datasets' %}border-indigo-500 text-gray-900{% else %}border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700{% endif %} px-1 pt-1 text-sm font-medium">
+                        Datasets
+                    </a>
+                </div>
+            </div>
+            <div class="hidden sm:ml-6 sm:flex sm:items-center">
+                <div class="relative" id="user-menu">
+                    <button type="button"
+                            onclick="toggleUserMenu()"
+                            class="flex rounded-full bg-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2">
+                        <span class="sr-only">Open user menu</span>
+                        <div class="h-8 w-8 rounded-full bg-indigo-100 flex items-center justify-center">
+                            <span id="user-initial" class="text-indigo-600 font-medium">U</span>
+                        </div>
+                    </button>
+                    <div id="user-dropdown"
+                         class="hidden absolute right-0 z-10 mt-2 w-48 origin-top-right rounded-md bg-white py-1 shadow-lg ring-1 ring-black ring-opacity-5">
+                        <div class="px-4 py-2 text-sm text-gray-700 border-b" id="user-email">
+                            user@example.com
+                        </div>
+                        <a href="#" onclick="logout()" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
+                            Sign out
+                        </a>
+                    </div>
+                </div>
+            </div>
+            <!-- Mobile menu button -->
+            <div class="flex items-center sm:hidden">
+                <button type="button"
+                        onclick="toggleMobileMenu()"
+                        class="inline-flex items-center justify-center rounded-md p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-500">
+                    <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+                    </svg>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Mobile menu -->
+    <div id="mobile-menu" class="hidden sm:hidden">
+        <div class="space-y-1 pb-3 pt-2">
+            <a href="/dashboard"
+               class="block border-l-4 {% if active == 'dashboard' %}border-indigo-500 bg-indigo-50 text-indigo-700{% else %}border-transparent text-gray-500 hover:border-gray-300 hover:bg-gray-50 hover:text-gray-700{% endif %} py-2 pl-3 pr-4 text-base font-medium">
+                Dashboard
+            </a>
+            <a href="/projects"
+               class="block border-l-4 {% if active == 'projects' %}border-indigo-500 bg-indigo-50 text-indigo-700{% else %}border-transparent text-gray-500 hover:border-gray-300 hover:bg-gray-50 hover:text-gray-700{% endif %} py-2 pl-3 pr-4 text-base font-medium">
+                Projects
+            </a>
+            <a href="/datasets"
+               class="block border-l-4 {% if active == 'datasets' %}border-indigo-500 bg-indigo-50 text-indigo-700{% else %}border-transparent text-gray-500 hover:border-gray-300 hover:bg-gray-50 hover:text-gray-700{% endif %} py-2 pl-3 pr-4 text-base font-medium">
+                Datasets
+            </a>
+        </div>
+        <div class="border-t border-gray-200 pb-3 pt-4">
+            <a href="#" onclick="logout()" class="block px-4 py-2 text-base font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-800">
+                Sign out
+            </a>
+        </div>
+    </div>
+</nav>
+
+<script>
+    function toggleUserMenu() {
+        document.getElementById('user-dropdown').classList.toggle('hidden');
+    }
+
+    function toggleMobileMenu() {
+        document.getElementById('mobile-menu').classList.toggle('hidden');
+    }
+
+    function logout() {
+        removeAuthToken();
+        window.location.href = '/login';
+    }
+
+    // Close dropdown when clicking outside
+    document.addEventListener('click', function(event) {
+        const userMenu = document.getElementById('user-menu');
+        const dropdown = document.getElementById('user-dropdown');
+        if (!userMenu.contains(event.target)) {
+            dropdown.classList.add('hidden');
+        }
+    });
+</script>

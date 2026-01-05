@@ -1,0 +1,205 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Record Linkage{% endblock %}
+
+{% block navbar %}
+{% include "components/navbar.html" with context %}
+{% endblock %}
+
+{% block content %}
+<div class="py-10">
+    <header class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+        <div class="md:flex md:items-center md:justify-between">
+            <div class="min-w-0 flex-1">
+                <h1 class="text-2xl font-bold leading-7 text-gray-900 sm:truncate sm:text-3xl sm:tracking-tight">
+                    Dashboard
+                </h1>
+            </div>
+            <div class="mt-4 flex md:ml-4 md:mt-0">
+                <a href="/projects/new"
+                   class="ml-3 inline-flex items-center rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600">
+                    <svg class="-ml-0.5 mr-1.5 h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                        <path d="M10.75 4.75a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z" />
+                    </svg>
+                    New Project
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <main class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 mt-8">
+        <!-- Stats -->
+        <div class="grid grid-cols-1 gap-5 sm:grid-cols-3 mb-8" id="stats-container">
+            <div class="bg-white overflow-hidden shadow rounded-lg">
+                <div class="p-5">
+                    <div class="flex items-center">
+                        <div class="flex-shrink-0">
+                            <svg class="h-6 w-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" />
+                            </svg>
+                        </div>
+                        <div class="ml-5 w-0 flex-1">
+                            <dl>
+                                <dt class="text-sm font-medium text-gray-500 truncate">Total Projects</dt>
+                                <dd class="text-lg font-semibold text-gray-900" id="stat-projects">-</dd>
+                            </dl>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="bg-white overflow-hidden shadow rounded-lg">
+                <div class="p-5">
+                    <div class="flex items-center">
+                        <div class="flex-shrink-0">
+                            <svg class="h-6 w-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M3.375 19.5h17.25m-17.25 0a1.125 1.125 0 01-1.125-1.125M3.375 19.5h7.5c.621 0 1.125-.504 1.125-1.125m-9.75 0V5.625m0 12.75v-1.5c0-.621.504-1.125 1.125-1.125m18.375 2.625V5.625m0 12.75c0 .621-.504 1.125-1.125 1.125m1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125m0 3.75h-7.5A1.125 1.125 0 0112 18.375m9.75-12.75c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125m19.5 0v1.5c0 .621-.504 1.125-1.125 1.125M2.25 5.625v1.5c0 .621.504 1.125 1.125 1.125m0 0h17.25m-17.25 0h7.5c.621 0 1.125.504 1.125 1.125M3.375 8.25c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125m17.25-3.75h-7.5c-.621 0-1.125.504-1.125 1.125m8.625-1.125c.621 0 1.125.504 1.125 1.125v1.5c0 .621-.504 1.125-1.125 1.125" />
+                            </svg>
+                        </div>
+                        <div class="ml-5 w-0 flex-1">
+                            <dl>
+                                <dt class="text-sm font-medium text-gray-500 truncate">Total Datasets</dt>
+                                <dd class="text-lg font-semibold text-gray-900" id="stat-datasets">-</dd>
+                            </dl>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="bg-white overflow-hidden shadow rounded-lg">
+                <div class="p-5">
+                    <div class="flex items-center">
+                        <div class="flex-shrink-0">
+                            <svg class="h-6 w-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                        </div>
+                        <div class="ml-5 w-0 flex-1">
+                            <dl>
+                                <dt class="text-sm font-medium text-gray-500 truncate">Labeled Pairs</dt>
+                                <dd class="text-lg font-semibold text-gray-900" id="stat-labeled">-</dd>
+                            </dl>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Recent Projects -->
+        <div class="bg-white shadow rounded-lg">
+            <div class="px-4 py-5 sm:px-6 border-b border-gray-200">
+                <h3 class="text-base font-semibold leading-6 text-gray-900">Recent Projects</h3>
+            </div>
+            <div id="projects-list" class="divide-y divide-gray-200">
+                <div class="p-8 text-center text-gray-500">
+                    <svg class="mx-auto h-12 w-12 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    <p class="mt-2">Loading projects...</p>
+                </div>
+            </div>
+        </div>
+    </main>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Check authentication
+    if (!isAuthenticated()) {
+        window.location.href = '/login';
+    }
+
+    // Load dashboard data
+    async function loadDashboard() {
+        const token = getAuthToken();
+
+        try {
+            // Load projects
+            const projectsResponse = await fetch('/api/projects', {
+                headers: { 'Authorization': 'Bearer ' + token }
+            });
+
+            if (projectsResponse.status === 401) {
+                removeAuthToken();
+                window.location.href = '/login';
+                return;
+            }
+
+            const projects = await projectsResponse.json();
+
+            // Load datasets
+            const datasetsResponse = await fetch('/api/datasets', {
+                headers: { 'Authorization': 'Bearer ' + token }
+            });
+            const datasets = await datasetsResponse.json();
+
+            // Update stats
+            document.getElementById('stat-projects').textContent = projects.length;
+            document.getElementById('stat-datasets').textContent = datasets.length;
+            document.getElementById('stat-labeled').textContent = '0'; // TODO: Load actual count
+
+            // Render projects
+            const projectsList = document.getElementById('projects-list');
+
+            if (projects.length === 0) {
+                projectsList.innerHTML = `
+                    <div class="p-8 text-center text-gray-500">
+                        <svg class="mx-auto h-12 w-12 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        <p class="mt-2">No projects yet</p>
+                        <a href="/projects/new" class="mt-4 inline-flex items-center text-indigo-600 hover:text-indigo-500">
+                            Create your first project
+                            <svg class="ml-1 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                            </svg>
+                        </a>
+                    </div>
+                `;
+            } else {
+                projectsList.innerHTML = projects.map(project => `
+                    <a href="/projects/${project.id}" class="block hover:bg-gray-50">
+                        <div class="px-4 py-4 sm:px-6">
+                            <div class="flex items-center justify-between">
+                                <p class="truncate text-sm font-medium text-indigo-600">${project.name}</p>
+                                <div class="ml-2 flex flex-shrink-0">
+                                    <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${project.linkage_type === 'deduplication' ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800'}">
+                                        ${project.linkage_type === 'deduplication' ? 'Deduplication' : 'Linkage'}
+                                    </span>
+                                </div>
+                            </div>
+                            <div class="mt-2 sm:flex sm:justify-between">
+                                <div class="sm:flex">
+                                    <p class="flex items-center text-sm text-gray-500">
+                                        ${project.description || 'No description'}
+                                    </p>
+                                </div>
+                                <div class="mt-2 flex items-center text-sm text-gray-500 sm:mt-0">
+                                    <svg class="mr-1.5 h-5 w-5 flex-shrink-0 text-gray-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
+                                    </svg>
+                                    <p>Created ${new Date(project.created_at).toLocaleDateString()}</p>
+                                </div>
+                            </div>
+                        </div>
+                    </a>
+                `).join('');
+            }
+
+            // Update user info in navbar
+            const meResponse = await fetch('/api/auth/me', {
+                headers: { 'Authorization': 'Bearer ' + token }
+            });
+            if (meResponse.ok) {
+                const user = await meResponse.json();
+                document.getElementById('user-email').textContent = user.email;
+                document.getElementById('user-initial').textContent = (user.full_name || user.email)[0].toUpperCase();
+            }
+
+        } catch (error) {
+            console.error('Failed to load dashboard:', error);
+        }
+    }
+
+    loadDashboard();
+</script>
+{% endblock %}

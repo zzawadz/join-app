@@ -1,0 +1,334 @@
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from sqlalchemy.orm import Session
+from typing import List, Optional
+from datetime import datetime
+import random
+
+from app.db.database import get_db
+from app.db.models import (
+    User, Project, Dataset, LabelingSession, LabeledPair,
+    LinkageModel, PairLabel
+)
+from app.api.auth import get_current_active_user
+from app.api.deps import get_project_or_404
+from app.schemas.labeling import (
+    LabelingSessionCreate, LabelingSessionResponse,
+    LabelingPairResponse, LabelSubmission, LabelingProgress
+)
+from app.core.linkage.active_learning import select_informative_pair
+from app.core.linkage.comparators import compare_records
+
+router = APIRouter()
+
+
+@router.post("/projects/{project_id}/start", response_model=LabelingSessionResponse)
+def start_labeling_session(
+    project_id: int,
+    session_data: LabelingSessionCreate,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Start a new labeling session for active learning."""
+    project = get_project_or_404(project_id, current_user, db)
+
+    # Check for existing active session
+    existing = db.query(LabelingSession).filter(
+        LabelingSession.project_id == project_id,
+        LabelingSession.user_id == current_user.id,
+        LabelingSession.status == "active"
+    ).first()
+
+    if existing:
+        return existing
+
+    session = LabelingSession(
+        project_id=project_id,
+        user_id=current_user.id,
+        strategy=session_data.strategy or "uncertainty",
+        target_labels=session_data.target_labels or 100
+    )
+
+    db.add(session)
+    db.commit()
+    db.refresh(session)
+
+    return session
+
+
+@router.get("/sessions/{session_id}", response_model=LabelingSessionResponse)
+def get_session(
+    session_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Get labeling session details."""
+    session = db.query(LabelingSession).filter(
+        LabelingSession.id == session_id,
+        LabelingSession.user_id == current_user.id
+    ).first()
+
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    return session
+
+
+@router.get("/sessions/{session_id}/next", response_model=LabelingPairResponse)
+def get_next_pair(
+    session_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Get the next pair to label using active learning strategy."""
+    session = db.query(LabelingSession).filter(
+        LabelingSession.id == session_id,
+        LabelingSession.user_id == current_user.id
+    ).first()
+
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    if session.status != "active":
+        raise HTTPException(status_code=400, detail="Session is not active")
+
+    project = session.project
+
+    # Load datasets
+    import pandas as pd
+    datasets = {d.role: d for d in project.datasets}
+
+    if project.linkage_type.value == "deduplication":
+        df = pd.read_csv(datasets["dedupe"].file_path)
+        source_df = target_df = df
+    else:
+        source_df = pd.read_csv(datasets["source"].file_path)
+        target_df = pd.read_csv(datasets["target"].file_path)
+
+    # Get already labeled indices to exclude
+    labeled = db.query(LabeledPair).filter(
+        LabeledPair.project_id == project.id
+    ).all()
+    labeled_pairs = set((lp.left_record["_idx"], lp.right_record["_idx"])
+                       for lp in labeled if "_idx" in lp.left_record)
+
+    # Get active model for uncertainty sampling
+    active_model = db.query(LinkageModel).filter(
+        LinkageModel.project_id == project.id,
+        LinkageModel.is_active == True
+    ).first()
+
+    # Select next pair
+    pair = select_informative_pair(
+        source_df, target_df,
+        project.column_mappings or {},
+        project.comparison_config or {},
+        project.blocking_config or {},
+        labeled_pairs,
+        active_model,
+        strategy=session.strategy,
+        is_dedup=(project.linkage_type.value == "deduplication")
+    )
+
+    if pair is None:
+        raise HTTPException(status_code=204, detail="No more pairs to label")
+
+    left_idx, right_idx, comparison_vector = pair
+
+    left_record = source_df.iloc[left_idx].to_dict()
+    left_record["_idx"] = int(left_idx)
+
+    right_record = target_df.iloc[right_idx].to_dict()
+    right_record["_idx"] = int(right_idx)
+
+    return {
+        "session_id": session_id,
+        "left_record": left_record,
+        "right_record": right_record,
+        "comparison_vector": comparison_vector,
+        "column_mappings": project.column_mappings or {}
+    }
+
+
+@router.post("/sessions/{session_id}/label")
+def submit_label(
+    session_id: int,
+    submission: LabelSubmission,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Submit a label for a pair."""
+    session = db.query(LabelingSession).filter(
+        LabelingSession.id == session_id,
+        LabelingSession.user_id == current_user.id
+    ).first()
+
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    labeled_pair = LabeledPair(
+        session_id=session_id,
+        project_id=session.project_id,
+        labeled_by_id=current_user.id,
+        left_record=submission.left_record,
+        right_record=submission.right_record,
+        comparison_vector=submission.comparison_vector,
+        label=submission.label,
+        confidence=submission.confidence,
+        labeling_time_ms=submission.labeling_time_ms
+    )
+
+    db.add(labeled_pair)
+
+    session.total_labeled += 1
+    if session.target_labels and session.total_labeled >= session.target_labels:
+        session.status = "completed"
+
+    db.commit()
+
+    return {
+        "message": "Label saved",
+        "total_labeled": session.total_labeled,
+        "target_labels": session.target_labels
+    }
+
+
+@router.post("/sessions/{session_id}/skip")
+def skip_pair(
+    session_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Skip the current pair without labeling."""
+    session = db.query(LabelingSession).filter(
+        LabelingSession.id == session_id,
+        LabelingSession.user_id == current_user.id
+    ).first()
+
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    return {"message": "Pair skipped"}
+
+
+@router.get("/sessions/{session_id}/progress", response_model=LabelingProgress)
+def get_progress(
+    session_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Get labeling progress for the session."""
+    session = db.query(LabelingSession).filter(
+        LabelingSession.id == session_id,
+        LabelingSession.user_id == current_user.id
+    ).first()
+
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    # Get label distribution
+    labels = db.query(LabeledPair.label, db.func.count(LabeledPair.id)).filter(
+        LabeledPair.session_id == session_id
+    ).group_by(LabeledPair.label).all()
+
+    label_counts = {label.value: count for label, count in labels}
+
+    return {
+        "session_id": session_id,
+        "total_labeled": session.total_labeled,
+        "target_labels": session.target_labels,
+        "matches": label_counts.get("match", 0),
+        "non_matches": label_counts.get("non_match", 0),
+        "uncertain": label_counts.get("uncertain", 0),
+        "status": session.status
+    }
+
+
+@router.post("/sessions/{session_id}/retrain")
+def retrain_model(
+    session_id: int,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Trigger model retraining with current labeled data."""
+    session = db.query(LabelingSession).filter(
+        LabelingSession.id == session_id,
+        LabelingSession.user_id == current_user.id
+    ).first()
+
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    # Get or create active model
+    active_model = db.query(LinkageModel).filter(
+        LinkageModel.project_id == session.project_id,
+        LinkageModel.is_active == True
+    ).first()
+
+    if not active_model:
+        # Create new model
+        active_model = LinkageModel(
+            project_id=session.project_id,
+            name="Active Learning Model",
+            model_type="logistic_regression",
+            is_active=True
+        )
+        db.add(active_model)
+        db.commit()
+        db.refresh(active_model)
+
+    # Trigger training
+    from app.api.models import train_model_task
+    from app.config import get_settings
+    settings = get_settings()
+    background_tasks.add_task(train_model_task, active_model.id, settings.database_url)
+
+    return {"message": "Model retraining started", "model_id": active_model.id}
+
+
+@router.post("/sessions/{session_id}/complete")
+def complete_session(
+    session_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Mark labeling session as completed."""
+    session = db.query(LabelingSession).filter(
+        LabelingSession.id == session_id,
+        LabelingSession.user_id == current_user.id
+    ).first()
+
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    session.status = "completed"
+    db.commit()
+
+    return {"message": "Session completed", "total_labeled": session.total_labeled}
+
+
+@router.get("/projects/{project_id}/labeled-pairs")
+def get_labeled_pairs(
+    project_id: int,
+    limit: int = 100,
+    offset: int = 0,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Get all labeled pairs for a project."""
+    project = get_project_or_404(project_id, current_user, db)
+
+    pairs = db.query(LabeledPair).filter(
+        LabeledPair.project_id == project_id
+    ).order_by(LabeledPair.created_at.desc()).offset(offset).limit(limit).all()
+
+    total = db.query(LabeledPair).filter(
+        LabeledPair.project_id == project_id
+    ).count()
+
+    return {
+        "pairs": pairs,
+        "total": total,
+        "limit": limit,
+        "offset": offset
+    }

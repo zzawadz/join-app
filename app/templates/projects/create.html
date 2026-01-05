@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+
+{% block title %}Create Project - Record Linkage{% endblock %}
+
+{% block navbar %}
+{% set active = "projects" %}
+{% include "components/navbar.html" with context %}
+{% endblock %}
+
+{% block content %}
+<div class="py-10">
+    <header class="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8">
+        <h1 class="text-2xl font-bold leading-7 text-gray-900">Create New Project</h1>
+    </header>
+
+    <main class="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8 mt-8">
+        <form id="create-project-form" class="space-y-8">
+            <!-- Project Details -->
+            <div class="bg-white shadow rounded-lg p-6">
+                <h2 class="text-lg font-medium text-gray-900 mb-4">Project Details</h2>
+
+                <div class="space-y-4">
+                    <div>
+                        <label for="name" class="block text-sm font-medium text-gray-700">Project Name *</label>
+                        <input type="text" id="name" name="name" required
+                               class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm px-3 py-2 border">
+                    </div>
+
+                    <div>
+                        <label for="description" class="block text-sm font-medium text-gray-700">Description</label>
+                        <textarea id="description" name="description" rows="3"
+                                  class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm px-3 py-2 border"></textarea>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Linkage Type *</label>
+                        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                            <label class="relative flex cursor-pointer rounded-lg border bg-white p-4 shadow-sm focus:outline-none linkage-type-option" data-value="linkage">
+                                <input type="radio" name="linkage_type" value="linkage" class="sr-only" checked>
+                                <span class="flex flex-1">
+                                    <span class="flex flex-col">
+                                        <span class="block text-sm font-medium text-gray-900">Record Linkage</span>
+                                        <span class="mt-1 flex items-center text-sm text-gray-500">Link records between two different datasets</span>
+                                    </span>
+                                </span>
+                                <svg class="h-5 w-5 text-indigo-600 check-icon" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clip-rule="evenodd" />
+                                </svg>
+                            </label>
+
+                            <label class="relative flex cursor-pointer rounded-lg border bg-white p-4 shadow-sm focus:outline-none linkage-type-option" data-value="deduplication">
+                                <input type="radio" name="linkage_type" value="deduplication" class="sr-only">
+                                <span class="flex flex-1">
+                                    <span class="flex flex-col">
+                                        <span class="block text-sm font-medium text-gray-900">Deduplication</span>
+                                        <span class="mt-1 flex items-center text-sm text-gray-500">Find duplicate records within a single dataset</span>
+                                    </span>
+                                </span>
+                                <svg class="h-5 w-5 text-indigo-600 check-icon hidden" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clip-rule="evenodd" />
+                                </svg>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="error-message" class="hidden text-sm text-red-600 bg-red-50 p-3 rounded-md"></div>
+
+            <!-- Actions -->
+            <div class="flex justify-end space-x-3">
+                <a href="/dashboard" class="rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50">
+                    Cancel
+                </a>
+                <button type="submit"
+                        class="rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600">
+                    Create Project
+                </button>
+            </div>
+        </form>
+    </main>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    if (!isAuthenticated()) {
+        window.location.href = '/login';
+    }
+
+    // Linkage type selection
+    document.querySelectorAll('.linkage-type-option').forEach(option => {
+        option.addEventListener('click', function() {
+            document.querySelectorAll('.linkage-type-option').forEach(o => {
+                o.classList.remove('border-indigo-600', 'ring-2', 'ring-indigo-600');
+                o.classList.add('border-gray-300');
+                o.querySelector('.check-icon').classList.add('hidden');
+            });
+            this.classList.remove('border-gray-300');
+            this.classList.add('border-indigo-600', 'ring-2', 'ring-indigo-600');
+            this.querySelector('.check-icon').classList.remove('hidden');
+            this.querySelector('input').checked = true;
+        });
+    });
+
+    // Initialize first option
+    document.querySelector('.linkage-type-option[data-value="linkage"]').classList.add('border-indigo-600', 'ring-2', 'ring-indigo-600');
+
+    // Form submission
+    document.getElementById('create-project-form').addEventListener('submit', async function(e) {
+        e.preventDefault();
+
+        const name = document.getElementById('name').value;
+        const description = document.getElementById('description').value;
+        const linkageType = document.querySelector('input[name="linkage_type"]:checked').value;
+        const errorDiv = document.getElementById('error-message');
+
+        try {
+            const response = await fetch('/api/projects', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + getAuthToken()
+                },
+                body: JSON.stringify({
+                    name: name,
+                    description: description,
+                    linkage_type: linkageType
+                })
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+                window.location.href = `/projects/${data.id}`;
+            } else {
+                errorDiv.textContent = data.detail || 'Failed to create project';
+                errorDiv.classList.remove('hidden');
+            }
+        } catch (error) {
+            errorDiv.textContent = 'An error occurred. Please try again.';
+            errorDiv.classList.remove('hidden');
+        }
+    });
+</script>
+{% endblock %}

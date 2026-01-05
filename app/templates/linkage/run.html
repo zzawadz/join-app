@@ -1,0 +1,325 @@
+{% extends "base.html" %}
+
+{% block title %}Run Linkage - Record Linkage{% endblock %}
+
+{% block navbar %}
+{% set active = "projects" %}
+{% include "components/navbar.html" with context %}
+{% endblock %}
+
+{% block content %}
+<div class="py-10">
+    <header class="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
+        <a href="/projects/{{ project_id }}" class="text-sm text-gray-500 hover:text-gray-700 flex items-center">
+            <svg class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+            </svg>
+            Back to Project
+        </a>
+        <h1 class="mt-2 text-2xl font-bold text-gray-900">Run Linkage</h1>
+        <p class="mt-1 text-sm text-gray-500">Execute record linkage and view results</p>
+    </header>
+
+    <main class="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8 mt-8">
+        <!-- Run New Job -->
+        <div class="bg-white shadow rounded-lg mb-6">
+            <div class="px-4 py-5 sm:px-6 border-b border-gray-200">
+                <h3 class="text-base font-semibold leading-6 text-gray-900">Start New Linkage Job</h3>
+            </div>
+            <div class="p-6">
+                <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Model</label>
+                        <select id="model-select" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm px-3 py-2 border">
+                            <option value="">No model (threshold-based)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Job Type</label>
+                        <select id="job-type" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm px-3 py-2 border">
+                            <option value="full_linkage">Full Linkage</option>
+                            <option value="sample">Sample (first 1000 pairs)</option>
+                        </select>
+                    </div>
+                </div>
+                <button onclick="startJob()" class="mt-4 inline-flex items-center rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500">
+                    <svg class="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                    Start Linkage
+                </button>
+            </div>
+        </div>
+
+        <!-- Jobs List -->
+        <div class="bg-white shadow rounded-lg">
+            <div class="px-4 py-5 sm:px-6 border-b border-gray-200">
+                <h3 class="text-base font-semibold leading-6 text-gray-900">Linkage Jobs</h3>
+            </div>
+            <div id="jobs-list" class="divide-y divide-gray-200">
+                <div class="p-6 text-center text-gray-500">Loading jobs...</div>
+            </div>
+        </div>
+    </main>
+</div>
+
+<!-- Results Modal -->
+<div id="results-modal" class="hidden relative z-10" role="dialog">
+    <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity"></div>
+    <div class="fixed inset-0 z-10 overflow-y-auto">
+        <div class="flex min-h-full items-end justify-center p-4 text-center sm:items-center sm:p-0">
+            <div class="relative transform overflow-hidden rounded-lg bg-white text-left shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-4xl">
+                <div class="bg-white px-4 pb-4 pt-5 sm:p-6">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="text-lg font-semibold text-gray-900">Linkage Results</h3>
+                        <button onclick="hideResultsModal()" class="text-gray-400 hover:text-gray-500">
+                            <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+                    </div>
+
+                    <!-- Stats -->
+                    <div class="grid grid-cols-3 gap-4 mb-4">
+                        <div class="bg-gray-50 rounded-lg p-3 text-center">
+                            <div class="text-2xl font-bold text-gray-900" id="result-total">0</div>
+                            <div class="text-sm text-gray-500">Total Pairs</div>
+                        </div>
+                        <div class="bg-green-50 rounded-lg p-3 text-center">
+                            <div class="text-2xl font-bold text-green-600" id="result-matches">0</div>
+                            <div class="text-sm text-gray-500">Matches</div>
+                        </div>
+                        <div class="bg-gray-50 rounded-lg p-3 text-center">
+                            <div class="text-2xl font-bold text-gray-600" id="result-rate">0%</div>
+                            <div class="text-sm text-gray-500">Match Rate</div>
+                        </div>
+                    </div>
+
+                    <!-- Results Table -->
+                    <div class="max-h-96 overflow-y-auto">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50 sticky top-0">
+                                <tr>
+                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Left Index</th>
+                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Right Index</th>
+                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Score</th>
+                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Classification</th>
+                                </tr>
+                            </thead>
+                            <tbody id="results-table" class="bg-white divide-y divide-gray-200">
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Export -->
+                    <div class="mt-4 flex justify-end">
+                        <button id="export-btn" onclick="exportResults()" class="inline-flex items-center rounded-md bg-green-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-green-500">
+                            <svg class="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                            </svg>
+                            Export CSV
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const projectId = {{ project_id }};
+    let currentJobId = null;
+    let pollInterval = null;
+
+    if (!isAuthenticated()) {
+        window.location.href = '/login';
+    }
+
+    async function loadData() {
+        try {
+            // Load models
+            const modelsResponse = await fetch(`/api/models/projects/${projectId}/models`, {
+                headers: { 'Authorization': 'Bearer ' + getAuthToken() }
+            });
+            const models = await modelsResponse.json();
+
+            const select = document.getElementById('model-select');
+            models.forEach(m => {
+                const option = document.createElement('option');
+                option.value = m.id;
+                option.textContent = `${m.name} (${m.model_type})${m.is_active ? ' - Active' : ''}`;
+                select.appendChild(option);
+            });
+
+            // Load jobs
+            loadJobs();
+        } catch (error) {
+            console.error('Failed to load data:', error);
+        }
+    }
+
+    async function loadJobs() {
+        try {
+            const response = await fetch(`/api/linkage/projects/${projectId}/jobs`, {
+                headers: { 'Authorization': 'Bearer ' + getAuthToken() }
+            });
+            const jobs = await response.json();
+
+            const jobsList = document.getElementById('jobs-list');
+
+            if (jobs.length === 0) {
+                jobsList.innerHTML = `
+                    <div class="p-6 text-center text-gray-500">
+                        No linkage jobs yet. Start one above.
+                    </div>
+                `;
+                return;
+            }
+
+            jobsList.innerHTML = jobs.map(job => {
+                const statusColors = {
+                    'pending': 'bg-yellow-100 text-yellow-800',
+                    'running': 'bg-blue-100 text-blue-800',
+                    'completed': 'bg-green-100 text-green-800',
+                    'failed': 'bg-red-100 text-red-800'
+                };
+
+                const progress = job.total_pairs > 0 ? Math.round((job.processed_pairs / job.total_pairs) * 100) : 0;
+
+                return `
+                    <div class="px-4 py-4 sm:px-6">
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center">
+                                <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${statusColors[job.status]}">${job.status}</span>
+                                <span class="ml-3 text-sm text-gray-500">${job.job_type || 'full_linkage'}</span>
+                            </div>
+                            <div class="text-sm text-gray-500">
+                                ${new Date(job.created_at).toLocaleString()}
+                            </div>
+                        </div>
+                        ${job.status === 'running' ? `
+                            <div class="mt-2">
+                                <div class="flex justify-between text-xs text-gray-600 mb-1">
+                                    <span>Progress</span>
+                                    <span>${job.processed_pairs} / ${job.total_pairs}</span>
+                                </div>
+                                <div class="w-full bg-gray-200 rounded-full h-1.5">
+                                    <div class="bg-indigo-600 h-1.5 rounded-full" style="width: ${progress}%"></div>
+                                </div>
+                            </div>
+                        ` : ''}
+                        ${job.status === 'completed' ? `
+                            <div class="mt-2 flex justify-between items-center">
+                                <span class="text-sm text-gray-600">
+                                    Found <span class="font-medium text-green-600">${job.matched_pairs}</span> matches out of ${job.total_pairs} pairs
+                                </span>
+                                <button onclick="viewResults(${job.id})" class="text-indigo-600 hover:text-indigo-500 text-sm font-medium">
+                                    View Results
+                                </button>
+                            </div>
+                        ` : ''}
+                        ${job.status === 'failed' ? `
+                            <div class="mt-2 text-sm text-red-600">Error: ${job.error_message || 'Unknown error'}</div>
+                        ` : ''}
+                    </div>
+                `;
+            }).join('');
+
+            // Check if any jobs are running and set up polling
+            const runningJobs = jobs.filter(j => j.status === 'running' || j.status === 'pending');
+            if (runningJobs.length > 0 && !pollInterval) {
+                pollInterval = setInterval(loadJobs, 3000);
+            } else if (runningJobs.length === 0 && pollInterval) {
+                clearInterval(pollInterval);
+                pollInterval = null;
+            }
+
+        } catch (error) {
+            console.error('Failed to load jobs:', error);
+        }
+    }
+
+    async function startJob() {
+        const modelId = document.getElementById('model-select').value;
+        const jobType = document.getElementById('job-type').value;
+
+        try {
+            const response = await fetch(`/api/linkage/projects/${projectId}/run`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + getAuthToken()
+                },
+                body: JSON.stringify({
+                    model_id: modelId ? parseInt(modelId) : null,
+                    job_type: jobType
+                })
+            });
+
+            if (response.ok) {
+                showToast('Linkage job started', 'success');
+                loadJobs();
+            } else {
+                const data = await response.json();
+                showToast(data.detail || 'Failed to start job', 'error');
+            }
+        } catch (error) {
+            showToast('An error occurred', 'error');
+        }
+    }
+
+    async function viewResults(jobId) {
+        currentJobId = jobId;
+
+        try {
+            // Get job details
+            const jobResponse = await fetch(`/api/linkage/jobs/${jobId}`, {
+                headers: { 'Authorization': 'Bearer ' + getAuthToken() }
+            });
+            const job = await jobResponse.json();
+
+            document.getElementById('result-total').textContent = job.total_pairs.toLocaleString();
+            document.getElementById('result-matches').textContent = job.matched_pairs.toLocaleString();
+            const rate = job.total_pairs > 0 ? ((job.matched_pairs / job.total_pairs) * 100).toFixed(1) : 0;
+            document.getElementById('result-rate').textContent = rate + '%';
+
+            // Get results
+            const resultsResponse = await fetch(`/api/linkage/jobs/${jobId}/results?classification=match&limit=100`, {
+                headers: { 'Authorization': 'Bearer ' + getAuthToken() }
+            });
+            const results = await resultsResponse.json();
+
+            const tbody = document.getElementById('results-table');
+            tbody.innerHTML = results.map(r => `
+                <tr>
+                    <td class="px-4 py-2 text-sm">${r.left_record_idx}</td>
+                    <td class="px-4 py-2 text-sm">${r.right_record_idx}</td>
+                    <td class="px-4 py-2 text-sm">${(r.match_score * 100).toFixed(1)}%</td>
+                    <td class="px-4 py-2 text-sm">
+                        <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${r.classification === 'match' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}">
+                            ${r.classification}
+                        </span>
+                    </td>
+                </tr>
+            `).join('');
+
+            document.getElementById('results-modal').classList.remove('hidden');
+        } catch (error) {
+            showToast('Failed to load results', 'error');
+        }
+    }
+
+    function hideResultsModal() {
+        document.getElementById('results-modal').classList.add('hidden');
+    }
+
+    function exportResults() {
+        if (!currentJobId) return;
+        window.location.href = `/api/linkage/jobs/${currentJobId}/export?token=${getAuthToken()}`;
+    }
+
+    loadData();
+</script>
+{% endblock %}

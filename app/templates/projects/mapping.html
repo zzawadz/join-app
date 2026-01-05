@@ -1,0 +1,257 @@
+{% extends "base.html" %}
+
+{% block title %}Column Mapping - Record Linkage{% endblock %}
+
+{% block navbar %}
+{% set active = "projects" %}
+{% include "components/navbar.html" with context %}
+{% endblock %}
+
+{% block content %}
+<div class="py-10">
+    <header class="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
+        <a href="/projects/{{ project_id }}" class="text-sm text-gray-500 hover:text-gray-700 flex items-center">
+            <svg class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+            </svg>
+            Back to Project
+        </a>
+        <h1 class="mt-2 text-2xl font-bold text-gray-900">Column Mapping</h1>
+        <p class="mt-1 text-sm text-gray-500">Map columns between source and target datasets for comparison</p>
+    </header>
+
+    <main class="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8 mt-8">
+        <!-- Auto-suggest Button -->
+        <div class="mb-6 flex justify-between items-center">
+            <button onclick="autoSuggest()" class="inline-flex items-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50">
+                <svg class="h-4 w-4 mr-2 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                </svg>
+                Auto-suggest Mappings
+            </button>
+            <button onclick="saveMappings()" class="inline-flex items-center rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500">
+                Save Mappings
+            </button>
+        </div>
+
+        <!-- Mapping Table -->
+        <div class="bg-white shadow rounded-lg overflow-hidden">
+            <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Source Column
+                        </th>
+                        <th scope="col" class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Maps To
+                        </th>
+                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Target Column
+                        </th>
+                        <th scope="col" class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Confidence
+                        </th>
+                        <th scope="col" class="relative px-6 py-3">
+                            <span class="sr-only">Actions</span>
+                        </th>
+                    </tr>
+                </thead>
+                <tbody id="mappings-body" class="bg-white divide-y divide-gray-200">
+                    <tr>
+                        <td colspan="5" class="px-6 py-8 text-center text-gray-500">
+                            Loading columns...
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Add Mapping Button -->
+        <div class="mt-4">
+            <button onclick="addMappingRow()" class="inline-flex items-center text-sm text-indigo-600 hover:text-indigo-500">
+                <svg class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                </svg>
+                Add Mapping
+            </button>
+        </div>
+    </main>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const projectId = {{ project_id }};
+    let sourceColumns = [];
+    let targetColumns = [];
+    let currentMappings = {};
+
+    if (!isAuthenticated()) {
+        window.location.href = '/login';
+    }
+
+    async function loadData() {
+        try {
+            // Load project details
+            const projectResponse = await fetch(`/api/projects/${projectId}`, {
+                headers: { 'Authorization': 'Bearer ' + getAuthToken() }
+            });
+            const project = await projectResponse.json();
+
+            // Extract columns from datasets
+            const sourceDataset = project.datasets.find(d => d.role === 'source' || d.role === 'dedupe');
+            const targetDataset = project.datasets.find(d => d.role === 'target') || sourceDataset;
+
+            if (sourceDataset) {
+                sourceColumns = sourceDataset.column_names || [];
+            }
+            if (targetDataset) {
+                targetColumns = targetDataset.column_names || [];
+            }
+
+            currentMappings = project.column_mappings || {};
+
+            renderMappings();
+        } catch (error) {
+            console.error('Failed to load data:', error);
+        }
+    }
+
+    function renderMappings() {
+        const tbody = document.getElementById('mappings-body');
+
+        if (Object.keys(currentMappings).length === 0 && sourceColumns.length > 0) {
+            // Show empty state with add button
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="5" class="px-6 py-8 text-center text-gray-500">
+                        <p>No mappings configured yet.</p>
+                        <button onclick="autoSuggest()" class="mt-2 text-indigo-600 hover:text-indigo-500">
+                            Click to auto-suggest mappings
+                        </button>
+                    </td>
+                </tr>
+            `;
+            return;
+        }
+
+        tbody.innerHTML = Object.entries(currentMappings).map(([source, target], idx) => `
+            <tr data-source="${source}">
+                <td class="px-6 py-4 whitespace-nowrap">
+                    <select class="source-select rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm" onchange="updateMapping(this, '${source}')">
+                        <option value="">-- Select --</option>
+                        ${sourceColumns.map(col => `<option value="${col}" ${col === source ? 'selected' : ''}>${col}</option>`).join('')}
+                    </select>
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap text-center">
+                    <svg class="h-5 w-5 text-gray-400 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                    </svg>
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap">
+                    <select class="target-select rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm" onchange="updateTargetMapping('${source}', this.value)">
+                        <option value="">-- Select --</option>
+                        ${targetColumns.map(col => `<option value="${col}" ${col === target ? 'selected' : ''}>${col}</option>`).join('')}
+                    </select>
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap text-center">
+                    <span class="confidence-badge inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-gray-100 text-gray-800">
+                        --
+                    </span>
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                    <button onclick="removeMapping('${source}')" class="text-red-600 hover:text-red-900">Remove</button>
+                </td>
+            </tr>
+        `).join('');
+    }
+
+    function addMappingRow() {
+        // Add empty mapping
+        const unusedSource = sourceColumns.find(c => !currentMappings[c]);
+        if (unusedSource) {
+            currentMappings[unusedSource] = '';
+            renderMappings();
+        }
+    }
+
+    function updateMapping(select, oldSource) {
+        const newSource = select.value;
+        const target = currentMappings[oldSource];
+
+        delete currentMappings[oldSource];
+        if (newSource) {
+            currentMappings[newSource] = target;
+        }
+        renderMappings();
+    }
+
+    function updateTargetMapping(source, target) {
+        currentMappings[source] = target;
+    }
+
+    function removeMapping(source) {
+        delete currentMappings[source];
+        renderMappings();
+    }
+
+    async function autoSuggest() {
+        try {
+            const response = await fetch(`/api/projects/${projectId}/mapping/suggest`, {
+                headers: { 'Authorization': 'Bearer ' + getAuthToken() }
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+
+                // Apply suggestions
+                currentMappings = {};
+                data.suggestions.forEach(s => {
+                    if (s.source_column && s.target_column) {
+                        currentMappings[s.source_column] = s.target_column;
+                    } else if (s.column) {
+                        // Dedup mode
+                        currentMappings[s.column] = s.column;
+                    }
+                });
+
+                renderMappings();
+                showToast('Mappings suggested based on column names', 'success');
+            }
+        } catch (error) {
+            showToast('Failed to get suggestions', 'error');
+        }
+    }
+
+    async function saveMappings() {
+        // Filter out empty mappings
+        const validMappings = {};
+        Object.entries(currentMappings).forEach(([source, target]) => {
+            if (source && target) {
+                validMappings[source] = target;
+            }
+        });
+
+        try {
+            const response = await fetch(`/api/projects/${projectId}/mapping`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + getAuthToken()
+                },
+                body: JSON.stringify({ mappings: validMappings })
+            });
+
+            if (response.ok) {
+                showToast('Mappings saved successfully', 'success');
+            } else {
+                showToast('Failed to save mappings', 'error');
+            }
+        } catch (error) {
+            showToast('An error occurred', 'error');
+        }
+    }
+
+    loadData();
+</script>
+{% endblock %}
