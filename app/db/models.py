@@ -92,6 +92,10 @@ class Project(Base):
     comparison_config = Column(JSON, default=dict)
     blocking_config = Column(JSON, default=dict)
 
+    # Demo project fields
+    is_demo = Column(Boolean, default=False)
+    demo_domain = Column(String(50))  # "people" or "companies"
+
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, onupdate=func.now())
 
@@ -145,10 +149,14 @@ class LinkageModel(Base):
     is_active = Column(Boolean, default=False)
     training_pairs_count = Column(Integer, default=0)
 
+    # Training history retention setting
+    history_retention = Column(Integer, default=10)  # Keep last N training iterations
+
     trained_at = Column(DateTime)
     created_at = Column(DateTime, server_default=func.now())
 
     project = relationship("Project", back_populates="linkage_models")
+    training_history = relationship("TrainingHistory", back_populates="model", cascade="all, delete-orphan")
 
 
 class LinkageJob(Base):
@@ -211,6 +219,10 @@ class LabelingSession(Base):
     total_labeled = Column(Integer, default=0)
     target_labels = Column(Integer)
 
+    # Timing tracking
+    started_at = Column(DateTime)  # When labeling actually started
+    total_labeling_time_ms = Column(Integer, default=0)  # Cumulative time spent
+
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, onupdate=func.now())
 
@@ -242,3 +254,45 @@ class LabeledPair(Base):
     session = relationship("LabelingSession", back_populates="labeled_pairs")
     project = relationship("Project", back_populates="labeled_pairs")
     labeled_by_user = relationship("User", back_populates="labeled_pairs")
+
+
+# ============ Training History Model ============
+
+class TrainingHistory(Base):
+    """Tracks model training iterations for performance trending."""
+    __tablename__ = "training_history"
+
+    id = Column(Integer, primary_key=True, index=True)
+    model_id = Column(Integer, ForeignKey("linkage_models.id"), nullable=False)
+
+    # Training info
+    iteration = Column(Integer, nullable=False)  # Sequential training number
+    training_pairs_count = Column(Integer)
+
+    # In-sample metrics (training set)
+    train_precision = Column(Float)
+    train_recall = Column(Float)
+    train_f1 = Column(Float)
+    train_accuracy = Column(Float)
+    train_samples = Column(Integer)  # Number of samples in training set
+
+    # Out-of-sample metrics (test set)
+    test_precision = Column(Float)
+    test_recall = Column(Float)
+    test_f1 = Column(Float)
+    test_accuracy = Column(Float)
+    test_samples = Column(Integer)  # Number of samples in test set
+
+    # Cross-validation (if available)
+    cv_f1_mean = Column(Float)
+    cv_f1_std = Column(Float)
+
+    # Feature importance snapshot
+    feature_importance = Column(JSON)  # {"field_name": importance_score}
+
+    # Confusion matrix
+    confusion_matrix = Column(JSON)  # {"tp": x, "tn": y, "fp": z, "fn": w}
+
+    trained_at = Column(DateTime, server_default=func.now())
+
+    model = relationship("LinkageModel", back_populates="training_history")

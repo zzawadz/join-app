@@ -15,6 +15,14 @@ class ProjectCreate(ProjectBase):
     pass
 
 
+class DemoProjectCreate(BaseModel):
+    """Schema for creating a demo project with synthetic data."""
+    name: str
+    description: Optional[str] = None
+    linkage_type: LinkageType = LinkageType.LINKAGE
+    demo_domain: str  # "people" or "companies"
+
+
 class ProjectUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
@@ -25,6 +33,8 @@ class ProjectResponse(ProjectBase):
     id: int
     organization_id: int
     created_by_id: int
+    is_demo: bool = False
+    demo_domain: Optional[str] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
 

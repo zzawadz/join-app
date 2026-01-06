@@ -1,16 +1,19 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List, Optional
+from datetime import datetime
 
 from app.db.database import get_db
-from app.db.models import User, Project, Dataset, LinkageType
+from app.db.models import User, Project, Dataset, LinkageType, LabelingSession, LabeledPair, PairLabel
 from app.api.auth import get_current_active_user
 from app.api.deps import get_user_organization, get_project_or_404
 from app.schemas.project import (
     ProjectCreate, ProjectUpdate, ProjectResponse, ProjectDetail,
-    ColumnMappingRequest, ComparisonConfigRequest, BlockingConfigRequest
+    ColumnMappingRequest, ComparisonConfigRequest, BlockingConfigRequest,
+    DemoProjectCreate
 )
 from app.services.column_mapper import suggest_column_mappings
+from app.config import get_settings
 
 router = APIRouter()
 
@@ -50,6 +53,154 @@ def create_project(
     db.refresh(project)
 
     return project
+
+
+@router.post("/demo", response_model=ProjectDetail)
+def create_demo_project(
+    demo_data: DemoProjectCreate,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Create a demo project with synthetic test data."""
+    from app.services.demo_generator import DemoDataGenerator, save_demo_datasets
+
+    org = get_user_organization(current_user, db)
+    settings = get_settings()
+
+    # Validate demo domain
+    if demo_data.demo_domain not in ["people", "companies"]:
+        raise HTTPException(
+            status_code=400,
+            detail="demo_domain must be 'people' or 'companies'"
+        )
+
+    # Create the project
+    project = Project(
+        name=demo_data.name,
+        description=demo_data.description or f"Demo project with {demo_data.demo_domain} data",
+        organization_id=org.id,
+        created_by_id=current_user.id,
+        linkage_type=demo_data.linkage_type,
+        is_demo=True,
+        demo_domain=demo_data.demo_domain
+    )
+    db.add(project)
+    db.commit()
+    db.refresh(project)
+
+    try:
+        # Generate demo data
+        generator = DemoDataGenerator(seed=42)
+        is_dedup = demo_data.linkage_type == LinkageType.DEDUPLICATION
+
+        if is_dedup:
+            # Create deduplication dataset
+            df = generator.create_dedup_dataset(
+                domain=demo_data.demo_domain,
+                n_unique=80,
+                duplicate_rate=0.3
+            )
+            source_path, _ = save_demo_datasets(
+                settings.storage_path, project.id, df, is_dedup=True
+            )
+
+            # Create dataset record
+            dataset = Dataset(
+                project_id=project.id,
+                name=f"Demo {demo_data.demo_domain.title()} Dataset",
+                original_filename="demo_dedupe.csv",
+                file_path=source_path,
+                row_count=len(df),
+                column_names=list(df.columns),
+                role="dedupe"
+            )
+            db.add(dataset)
+
+            # For dedup, source and target are the same
+            source_df = target_df = df
+        else:
+            # Create linkage datasets
+            source_df, target_df = generator.create_linkage_datasets(
+                domain=demo_data.demo_domain,
+                source_size=80,
+                target_size=100,
+                overlap_rate=0.4
+            )
+            source_path, target_path = save_demo_datasets(
+                settings.storage_path, project.id, source_df, target_df
+            )
+
+            # Create dataset records
+            source_dataset = Dataset(
+                project_id=project.id,
+                name=f"Demo Source ({demo_data.demo_domain.title()})",
+                original_filename="demo_source.csv",
+                file_path=source_path,
+                row_count=len(source_df),
+                column_names=list(source_df.columns),
+                role="source"
+            )
+            target_dataset = Dataset(
+                project_id=project.id,
+                name=f"Demo Target ({demo_data.demo_domain.title()})",
+                original_filename="demo_target.csv",
+                file_path=target_path,
+                row_count=len(target_df),
+                column_names=list(target_df.columns),
+                role="target"
+            )
+            db.add(source_dataset)
+            db.add(target_dataset)
+
+        # Set up column mappings and comparison config
+        project.column_mappings = generator.get_column_mappings(demo_data.demo_domain)
+        project.comparison_config = generator.get_comparison_config(demo_data.demo_domain)
+
+        # Generate pre-labeled pairs
+        labeled_pairs_data = generator.generate_labeled_pairs(
+            source_df, target_df, demo_data.demo_domain,
+            n_matches=15, n_non_matches=15
+        )
+
+        # Create a labeling session for the pre-labeled pairs
+        labeling_session = LabelingSession(
+            project_id=project.id,
+            user_id=current_user.id,
+            status="completed",
+            strategy="demo",
+            total_labeled=len(labeled_pairs_data),
+            target_labels=len(labeled_pairs_data),
+            started_at=datetime.utcnow()
+        )
+        db.add(labeling_session)
+        db.flush()
+
+        # Add labeled pairs
+        for pair_data in labeled_pairs_data:
+            labeled_pair = LabeledPair(
+                session_id=labeling_session.id,
+                project_id=project.id,
+                labeled_by_id=current_user.id,
+                left_record=pair_data["left_record"],
+                right_record=pair_data["right_record"],
+                comparison_vector=pair_data["comparison_vector"],
+                label=PairLabel.MATCH if pair_data["label"] == "match" else PairLabel.NON_MATCH
+            )
+            db.add(labeled_pair)
+
+        db.commit()
+        db.refresh(project)
+
+        return project
+
+    except Exception as e:
+        # Clean up on failure
+        db.delete(project)
+        db.commit()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to create demo project: {str(e)}"
+        )
 
 
 @router.get("/{project_id}", response_model=ProjectDetail)

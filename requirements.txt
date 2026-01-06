@@ -36,3 +36,6 @@ email-validator>=2.1.0
 pytest>=7.4.0
 pytest-asyncio>=0.21.0
 httpx>=0.25.0
+
+# Demo data generation
+faker>=22.0.0

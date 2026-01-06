@@ -14,9 +14,14 @@ from app.api.auth import get_current_active_user
 from app.api.deps import get_project_or_404
 from app.schemas.labeling import (
     LabelingSessionCreate, LabelingSessionResponse,
-    LabelingPairResponse, LabelSubmission, LabelingProgress
+    LabelingPairResponse, LabelSubmission, LabelingProgress,
+    DetailedProgressResponse, PairExplanation, LabelingPairWithExplanation,
+    ComparisonConfigUpdate
 )
-from app.core.linkage.active_learning import select_informative_pair
+from app.core.linkage.active_learning import (
+    select_informative_pair, select_informative_pair_with_explanation,
+    count_candidate_pairs
+)
 from app.core.linkage.comparators import compare_records
 
 router = APIRouter()
@@ -46,7 +51,9 @@ def start_labeling_session(
         project_id=project_id,
         user_id=current_user.id,
         strategy=session_data.strategy or "uncertainty",
-        target_labels=session_data.target_labels or 100
+        target_labels=session_data.target_labels or 100,
+        started_at=datetime.utcnow(),
+        total_labeling_time_ms=0
     )
 
     db.add(session)
@@ -181,6 +188,9 @@ def submit_label(
     db.add(labeled_pair)
 
     session.total_labeled += 1
+    # Track cumulative labeling time
+    if submission.labeling_time_ms:
+        session.total_labeling_time_ms = (session.total_labeling_time_ms or 0) + submission.labeling_time_ms
     if session.target_labels and session.total_labeled >= session.target_labels:
         session.status = "completed"
 
@@ -332,4 +342,212 @@ def get_labeled_pairs(
         "total": total,
         "limit": limit,
         "offset": offset
+    }
+
+
+@router.get("/sessions/{session_id}/detailed-progress", response_model=DetailedProgressResponse)
+def get_detailed_progress(
+    session_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Get detailed labeling progress including timing and candidate stats."""
+    session = db.query(LabelingSession).filter(
+        LabelingSession.id == session_id,
+        LabelingSession.user_id == current_user.id
+    ).first()
+
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    project = session.project
+
+    # Load datasets and count candidates
+    import pandas as pd
+    datasets = {d.role: d for d in project.datasets}
+
+    try:
+        if project.linkage_type.value == "deduplication":
+            df = pd.read_csv(datasets["dedupe"].file_path)
+            source_df = target_df = df
+        else:
+            source_df = pd.read_csv(datasets["source"].file_path)
+            target_df = pd.read_csv(datasets["target"].file_path)
+
+        # Get labeled pairs for counting
+        labeled = db.query(LabeledPair).filter(
+            LabeledPair.project_id == project.id
+        ).all()
+        labeled_pairs = set((lp.left_record["_idx"], lp.right_record["_idx"])
+                           for lp in labeled if "_idx" in lp.left_record)
+
+        total_candidates, remaining_candidates = count_candidate_pairs(
+            source_df, target_df,
+            project.blocking_config or {},
+            labeled_pairs,
+            is_dedup=(project.linkage_type.value == "deduplication")
+        )
+    except Exception:
+        total_candidates = 0
+        remaining_candidates = 0
+
+    # Get label distribution
+    labels = db.query(LabeledPair.label, func.count(LabeledPair.id)).filter(
+        LabeledPair.session_id == session_id
+    ).group_by(LabeledPair.label).all()
+
+    label_counts = {label.value: count for label, count in labels}
+
+    # Calculate average time per pair
+    total_time_ms = session.total_labeling_time_ms or 0
+    avg_time_per_pair_ms = total_time_ms / session.total_labeled if session.total_labeled > 0 else 0.0
+
+    return {
+        "session_id": session_id,
+        "total_labeled": session.total_labeled,
+        "target_labels": session.target_labels,
+        "total_candidates": total_candidates,
+        "estimated_remaining": remaining_candidates,
+        "total_time_ms": total_time_ms,
+        "avg_time_per_pair_ms": avg_time_per_pair_ms,
+        "matches": label_counts.get("match", 0),
+        "non_matches": label_counts.get("non_match", 0),
+        "uncertain": label_counts.get("uncertain", 0),
+        "status": session.status,
+        "started_at": session.started_at
+    }
+
+
+@router.get("/sessions/{session_id}/next-with-explanation", response_model=LabelingPairWithExplanation)
+def get_next_pair_with_explanation(
+    session_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Get the next pair to label with explanation of why it was selected."""
+    session = db.query(LabelingSession).filter(
+        LabelingSession.id == session_id,
+        LabelingSession.user_id == current_user.id
+    ).first()
+
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    if session.status != "active":
+        raise HTTPException(status_code=400, detail="Session is not active")
+
+    project = session.project
+
+    # Load datasets
+    import pandas as pd
+    datasets = {d.role: d for d in project.datasets}
+
+    if project.linkage_type.value == "deduplication":
+        df = pd.read_csv(datasets["dedupe"].file_path)
+        source_df = target_df = df
+    else:
+        source_df = pd.read_csv(datasets["source"].file_path)
+        target_df = pd.read_csv(datasets["target"].file_path)
+
+    # Get already labeled indices to exclude
+    labeled = db.query(LabeledPair).filter(
+        LabeledPair.project_id == project.id
+    ).all()
+    labeled_pairs = set((lp.left_record["_idx"], lp.right_record["_idx"])
+                       for lp in labeled if "_idx" in lp.left_record)
+
+    # Get active model for uncertainty sampling
+    active_model = db.query(LinkageModel).filter(
+        LinkageModel.project_id == project.id,
+        LinkageModel.is_active == True
+    ).first()
+
+    # Select next pair with explanation
+    result = select_informative_pair_with_explanation(
+        source_df, target_df,
+        project.column_mappings or {},
+        project.comparison_config or {},
+        project.blocking_config or {},
+        labeled_pairs,
+        active_model,
+        strategy=session.strategy,
+        is_dedup=(project.linkage_type.value == "deduplication")
+    )
+
+    if result is None:
+        raise HTTPException(status_code=204, detail="No more pairs to label")
+
+    left_record = source_df.iloc[result.left_idx].to_dict()
+    left_record["_idx"] = int(result.left_idx)
+
+    right_record = target_df.iloc[result.right_idx].to_dict()
+    right_record["_idx"] = int(result.right_idx)
+
+    explanation = PairExplanation(
+        selection_reason=result.selection_reason,
+        uncertainty_score=result.uncertainty_score,
+        model_probability=result.model_probability,
+        candidates_evaluated=result.candidates_evaluated
+    )
+
+    return {
+        "session_id": session_id,
+        "left_record": left_record,
+        "right_record": right_record,
+        "comparison_vector": result.comparison_vector,
+        "column_mappings": project.column_mappings or {},
+        "explanation": explanation
+    }
+
+
+@router.put("/projects/{project_id}/comparison-config")
+def update_comparison_config(
+    project_id: int,
+    config_update: ComparisonConfigUpdate,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Update column mappings and comparison configuration (immediate save)."""
+    project = get_project_or_404(project_id, current_user, db)
+
+    project.column_mappings = config_update.column_mappings
+    project.comparison_config = config_update.comparison_config
+    db.commit()
+
+    return {
+        "message": "Configuration updated",
+        "column_mappings": project.column_mappings,
+        "comparison_config": project.comparison_config
+    }
+
+
+@router.get("/projects/{project_id}/comparison-config")
+def get_comparison_config(
+    project_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Get current column mappings and comparison configuration."""
+    project = get_project_or_404(project_id, current_user, db)
+
+    # Get available columns from datasets
+    datasets = {d.role: d for d in project.datasets}
+
+    source_columns = []
+    target_columns = []
+
+    if project.linkage_type.value == "deduplication":
+        if "dedupe" in datasets:
+            source_columns = target_columns = datasets["dedupe"].column_names or []
+    else:
+        if "source" in datasets:
+            source_columns = datasets["source"].column_names or []
+        if "target" in datasets:
+            target_columns = datasets["target"].column_names or []
+
+    return {
+        "column_mappings": project.column_mappings or {},
+        "comparison_config": project.comparison_config or {},
+        "source_columns": source_columns,
+        "target_columns": target_columns
     }

@@ -109,6 +109,55 @@ def diversity_sampling(
     return [indices[i] for i in selected_indices]
 
 
+class PairSelectionResult:
+    """Result of pair selection with explanation."""
+    def __init__(
+        self,
+        left_idx: int,
+        right_idx: int,
+        comparison_vector: Dict[str, float],
+        selection_reason: str,
+        uncertainty_score: Optional[float] = None,
+        model_probability: Optional[float] = None,
+        candidates_evaluated: int = 0
+    ):
+        self.left_idx = left_idx
+        self.right_idx = right_idx
+        self.comparison_vector = comparison_vector
+        self.selection_reason = selection_reason
+        self.uncertainty_score = uncertainty_score
+        self.model_probability = model_probability
+        self.candidates_evaluated = candidates_evaluated
+
+
+def count_candidate_pairs(
+    source_df: pd.DataFrame,
+    target_df: pd.DataFrame,
+    blocking_config: Dict[str, Any],
+    labeled_pairs: Set[Tuple[int, int]],
+    is_dedup: bool = False
+) -> Tuple[int, int]:
+    """
+    Count total and remaining candidate pairs.
+
+    Args:
+        source_df: Source DataFrame
+        target_df: Target DataFrame
+        blocking_config: Blocking configuration
+        labeled_pairs: Set of already labeled pairs
+        is_dedup: Whether this is deduplication
+
+    Returns:
+        Tuple of (total_candidates, remaining_candidates)
+    """
+    all_pairs = create_candidate_pairs(
+        source_df, target_df, blocking_config, is_dedup
+    )
+    total = len(all_pairs)
+    remaining = len([p for p in all_pairs if p not in labeled_pairs])
+    return total, remaining
+
+
 def select_informative_pair(
     source_df: pd.DataFrame,
     target_df: pd.DataFrame,
@@ -139,6 +188,45 @@ def select_informative_pair(
     Returns:
         Tuple of (left_idx, right_idx, comparison_vector) or None
     """
+    result = select_informative_pair_with_explanation(
+        source_df, target_df, column_mappings, comparison_config,
+        blocking_config, labeled_pairs, model, strategy, is_dedup, sample_size
+    )
+    if result is None:
+        return None
+    return (result.left_idx, result.right_idx, result.comparison_vector)
+
+
+def select_informative_pair_with_explanation(
+    source_df: pd.DataFrame,
+    target_df: pd.DataFrame,
+    column_mappings: Dict[str, str],
+    comparison_config: Dict[str, Any],
+    blocking_config: Dict[str, Any],
+    labeled_pairs: Set[Tuple[int, int]],
+    model: Any,
+    strategy: str = "uncertainty",
+    is_dedup: bool = False,
+    sample_size: int = 1000
+) -> Optional[PairSelectionResult]:
+    """
+    Select the most informative pair for labeling with explanation.
+
+    Args:
+        source_df: Source DataFrame
+        target_df: Target DataFrame
+        column_mappings: Column mappings configuration
+        comparison_config: Comparison methods configuration
+        blocking_config: Blocking configuration
+        labeled_pairs: Set of already labeled (left_idx, right_idx) pairs
+        model: Trained model for uncertainty estimation (optional)
+        strategy: "uncertainty" or "random"
+        is_dedup: Whether this is deduplication
+        sample_size: Max pairs to evaluate
+
+    Returns:
+        PairSelectionResult with explanation or None
+    """
     # Generate candidate pairs
     all_pairs = create_candidate_pairs(
         source_df, target_df, blocking_config, is_dedup
@@ -151,14 +239,15 @@ def select_informative_pair(
         return None
 
     # Sample if too many pairs
+    sampled_pairs = unlabeled_pairs
     if len(unlabeled_pairs) > sample_size:
-        unlabeled_pairs = random.sample(unlabeled_pairs, sample_size)
+        sampled_pairs = random.sample(unlabeled_pairs, sample_size)
 
     # Compute comparison vectors
     comparison_vectors = []
     valid_pairs = []
 
-    for left_idx, right_idx in unlabeled_pairs:
+    for left_idx, right_idx in sampled_pairs:
         try:
             left_record = source_df.iloc[left_idx].to_dict()
             right_record = target_df.iloc[right_idx].to_dict()
@@ -175,10 +264,19 @@ def select_informative_pair(
     if not valid_pairs:
         return None
 
+    candidates_evaluated = len(valid_pairs)
+
     # Select based on strategy
     if strategy == "random" or model is None:
         idx = random.randrange(len(valid_pairs))
-        return (*valid_pairs[idx], comparison_vectors[idx])
+        reason = "random" if strategy == "random" else "no_model"
+        return PairSelectionResult(
+            left_idx=valid_pairs[idx][0],
+            right_idx=valid_pairs[idx][1],
+            comparison_vector=comparison_vectors[idx],
+            selection_reason=reason,
+            candidates_evaluated=candidates_evaluated
+        )
 
     elif strategy == "uncertainty":
         # Get model predictions
@@ -190,16 +288,36 @@ def select_informative_pair(
             uncertainties = [abs(p - 0.5) for p in probabilities]
             min_idx = np.argmin(uncertainties)
 
-            return (*valid_pairs[min_idx], comparison_vectors[min_idx])
+            return PairSelectionResult(
+                left_idx=valid_pairs[min_idx][0],
+                right_idx=valid_pairs[min_idx][1],
+                comparison_vector=comparison_vectors[min_idx],
+                selection_reason="uncertainty_sampling",
+                uncertainty_score=float(uncertainties[min_idx]),
+                model_probability=float(probabilities[min_idx]),
+                candidates_evaluated=candidates_evaluated
+            )
         except Exception:
             # Fall back to random if model fails
             idx = random.randrange(len(valid_pairs))
-            return (*valid_pairs[idx], comparison_vectors[idx])
+            return PairSelectionResult(
+                left_idx=valid_pairs[idx][0],
+                right_idx=valid_pairs[idx][1],
+                comparison_vector=comparison_vectors[idx],
+                selection_reason="random_fallback",
+                candidates_evaluated=candidates_evaluated
+            )
 
     else:
         # Default to random
         idx = random.randrange(len(valid_pairs))
-        return (*valid_pairs[idx], comparison_vectors[idx])
+        return PairSelectionResult(
+            left_idx=valid_pairs[idx][0],
+            right_idx=valid_pairs[idx][1],
+            comparison_vector=comparison_vectors[idx],
+            selection_reason="random",
+            candidates_evaluated=candidates_evaluated
+        )
 
 
 def calculate_model_uncertainty(model: Any, X: List[List[float]]) -> List[float]:

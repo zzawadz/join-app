@@ -6,7 +6,7 @@ from typing import List, Dict, Any, Optional, Tuple
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.model_selection import cross_val_score, train_test_split
-from sklearn.metrics import precision_score, recall_score, f1_score
+from sklearn.metrics import precision_score, recall_score, f1_score, accuracy_score, confusion_matrix
 import joblib
 
 
@@ -16,7 +16,12 @@ class BaseLinkageClassifier:
     def __init__(self):
         self.model = None
         self._metrics = {}
+        self._train_metrics = {}
+        self._test_metrics = {}
+        self._confusion_matrix = {}
         self.feature_names = []
+        self._train_samples = 0
+        self._test_samples = 0
 
     def fit(self, X: List[List[float]], y: List[int], feature_names: Optional[List[str]] = None):
         """Fit the classifier."""
@@ -36,12 +41,51 @@ class BaseLinkageClassifier:
         return probs[:, 1].tolist()  # Probability of match (class 1)
 
     def get_metrics(self) -> Dict[str, float]:
-        """Get model metrics."""
+        """Get model metrics (backward compatibility - returns test metrics)."""
         return self._metrics
+
+    def get_train_metrics(self) -> Dict[str, float]:
+        """Get in-sample (training set) metrics."""
+        return self._train_metrics
+
+    def get_test_metrics(self) -> Dict[str, float]:
+        """Get out-of-sample (test set) metrics."""
+        return self._test_metrics
+
+    def get_confusion_matrix(self) -> Dict[str, int]:
+        """Get confusion matrix from test set."""
+        return self._confusion_matrix
+
+    def get_train_samples(self) -> int:
+        """Get number of training samples."""
+        return self._train_samples
+
+    def get_test_samples(self) -> int:
+        """Get number of test samples."""
+        return self._test_samples
 
     def get_feature_importance(self) -> Dict[str, float]:
         """Get feature importance."""
         raise NotImplementedError
+
+    def _compute_metrics(self, y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, float]:
+        """Compute classification metrics."""
+        return {
+            'precision': float(precision_score(y_true, y_pred, zero_division=0)),
+            'recall': float(recall_score(y_true, y_pred, zero_division=0)),
+            'f1': float(f1_score(y_true, y_pred, zero_division=0)),
+            'accuracy': float(accuracy_score(y_true, y_pred))
+        }
+
+    def _compute_confusion_matrix(self, y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, int]:
+        """Compute confusion matrix."""
+        cm = confusion_matrix(y_true, y_pred, labels=[0, 1])
+        return {
+            'tn': int(cm[0, 0]),
+            'fp': int(cm[0, 1]),
+            'fn': int(cm[1, 0]),
+            'tp': int(cm[1, 1])
+        }
 
 
 class LogisticRegressionClassifier(BaseLinkageClassifier):
@@ -58,13 +102,24 @@ class LogisticRegressionClassifier(BaseLinkageClassifier):
 
         self.feature_names = feature_names or [f"feature_{i}" for i in range(X_arr.shape[1])]
 
-        # Split for evaluation
-        if len(y_arr) > 20:
-            X_train, X_test, y_train, y_test = train_test_split(
-                X_arr, y_arr, test_size=0.2, random_state=42, stratify=y_arr
-            )
+        # Split for evaluation - need enough samples and both classes in each split
+        has_test_set = False
+        if len(y_arr) > 20 and len(np.unique(y_arr)) > 1:
+            try:
+                X_train, X_test, y_train, y_test = train_test_split(
+                    X_arr, y_arr, test_size=0.2, random_state=42, stratify=y_arr
+                )
+                has_test_set = True
+            except ValueError:
+                # Not enough samples for stratified split
+                X_train, y_train = X_arr, y_arr
+                X_test, y_test = None, None
         else:
-            X_train, X_test, y_train, y_test = X_arr, X_arr, y_arr, y_arr
+            X_train, y_train = X_arr, y_arr
+            X_test, y_test = None, None
+
+        self._train_samples = len(y_train)
+        self._test_samples = len(y_test) if has_test_set else 0
 
         # Train model
         self.model = LogisticRegression(
@@ -74,20 +129,31 @@ class LogisticRegressionClassifier(BaseLinkageClassifier):
         )
         self.model.fit(X_train, y_train)
 
-        # Calculate metrics
-        y_pred = self.model.predict(X_test)
-        self._metrics = {
-            'precision': float(precision_score(y_test, y_pred, zero_division=0)),
-            'recall': float(recall_score(y_test, y_pred, zero_division=0)),
-            'f1': float(f1_score(y_test, y_pred, zero_division=0)),
-            'accuracy': float((y_pred == y_test).mean())
-        }
+        # Calculate in-sample (training) metrics
+        y_train_pred = self.model.predict(X_train)
+        self._train_metrics = self._compute_metrics(y_train, y_train_pred)
+
+        # Calculate out-of-sample (test) metrics if we have a test set
+        if has_test_set:
+            y_test_pred = self.model.predict(X_test)
+            self._test_metrics = self._compute_metrics(y_test, y_test_pred)
+            self._confusion_matrix = self._compute_confusion_matrix(y_test, y_test_pred)
+            # For backward compatibility, _metrics uses test metrics
+            self._metrics = self._test_metrics.copy()
+        else:
+            self._test_metrics = {}
+            self._confusion_matrix = {}
+            # Fall back to training metrics for backward compatibility
+            self._metrics = self._train_metrics.copy()
 
         # Cross-validation if enough data
-        if len(y_arr) >= 30:
-            cv_scores = cross_val_score(self.model, X_arr, y_arr, cv=5, scoring='f1')
-            self._metrics['cv_f1_mean'] = float(cv_scores.mean())
-            self._metrics['cv_f1_std'] = float(cv_scores.std())
+        if len(y_arr) >= 30 and len(np.unique(y_arr)) > 1:
+            try:
+                cv_scores = cross_val_score(self.model, X_arr, y_arr, cv=5, scoring='f1')
+                self._metrics['cv_f1_mean'] = float(cv_scores.mean())
+                self._metrics['cv_f1_std'] = float(cv_scores.std())
+            except ValueError:
+                pass  # Skip CV if not enough samples
 
     def get_feature_importance(self) -> Dict[str, float]:
         """Get feature importance from coefficients."""
@@ -117,13 +183,23 @@ class RandomForestLinkageClassifier(BaseLinkageClassifier):
 
         self.feature_names = feature_names or [f"feature_{i}" for i in range(X_arr.shape[1])]
 
-        # Split for evaluation
-        if len(y_arr) > 20:
-            X_train, X_test, y_train, y_test = train_test_split(
-                X_arr, y_arr, test_size=0.2, random_state=42, stratify=y_arr
-            )
+        # Split for evaluation - need enough samples and both classes
+        has_test_set = False
+        if len(y_arr) > 20 and len(np.unique(y_arr)) > 1:
+            try:
+                X_train, X_test, y_train, y_test = train_test_split(
+                    X_arr, y_arr, test_size=0.2, random_state=42, stratify=y_arr
+                )
+                has_test_set = True
+            except ValueError:
+                X_train, y_train = X_arr, y_arr
+                X_test, y_test = None, None
         else:
-            X_train, X_test, y_train, y_test = X_arr, X_arr, y_arr, y_arr
+            X_train, y_train = X_arr, y_arr
+            X_test, y_test = None, None
+
+        self._train_samples = len(y_train)
+        self._test_samples = len(y_test) if has_test_set else 0
 
         # Train model
         self.model = RandomForestClassifier(
@@ -134,14 +210,20 @@ class RandomForestLinkageClassifier(BaseLinkageClassifier):
         )
         self.model.fit(X_train, y_train)
 
-        # Calculate metrics
-        y_pred = self.model.predict(X_test)
-        self._metrics = {
-            'precision': float(precision_score(y_test, y_pred, zero_division=0)),
-            'recall': float(recall_score(y_test, y_pred, zero_division=0)),
-            'f1': float(f1_score(y_test, y_pred, zero_division=0)),
-            'accuracy': float((y_pred == y_test).mean())
-        }
+        # Calculate in-sample (training) metrics
+        y_train_pred = self.model.predict(X_train)
+        self._train_metrics = self._compute_metrics(y_train, y_train_pred)
+
+        # Calculate out-of-sample (test) metrics if we have a test set
+        if has_test_set:
+            y_test_pred = self.model.predict(X_test)
+            self._test_metrics = self._compute_metrics(y_test, y_test_pred)
+            self._confusion_matrix = self._compute_confusion_matrix(y_test, y_test_pred)
+            self._metrics = self._test_metrics.copy()
+        else:
+            self._test_metrics = {}
+            self._confusion_matrix = {}
+            self._metrics = self._train_metrics.copy()
 
     def get_feature_importance(self) -> Dict[str, float]:
         """Get feature importance from random forest."""
@@ -170,13 +252,23 @@ class GradientBoostingLinkageClassifier(BaseLinkageClassifier):
 
         self.feature_names = feature_names or [f"feature_{i}" for i in range(X_arr.shape[1])]
 
-        # Split for evaluation
-        if len(y_arr) > 20:
-            X_train, X_test, y_train, y_test = train_test_split(
-                X_arr, y_arr, test_size=0.2, random_state=42, stratify=y_arr
-            )
+        # Split for evaluation - need enough samples and both classes
+        has_test_set = False
+        if len(y_arr) > 20 and len(np.unique(y_arr)) > 1:
+            try:
+                X_train, X_test, y_train, y_test = train_test_split(
+                    X_arr, y_arr, test_size=0.2, random_state=42, stratify=y_arr
+                )
+                has_test_set = True
+            except ValueError:
+                X_train, y_train = X_arr, y_arr
+                X_test, y_test = None, None
         else:
-            X_train, X_test, y_train, y_test = X_arr, X_arr, y_arr, y_arr
+            X_train, y_train = X_arr, y_arr
+            X_test, y_test = None, None
+
+        self._train_samples = len(y_train)
+        self._test_samples = len(y_test) if has_test_set else 0
 
         # Train model
         self.model = GradientBoostingClassifier(
@@ -186,14 +278,20 @@ class GradientBoostingLinkageClassifier(BaseLinkageClassifier):
         )
         self.model.fit(X_train, y_train)
 
-        # Calculate metrics
-        y_pred = self.model.predict(X_test)
-        self._metrics = {
-            'precision': float(precision_score(y_test, y_pred, zero_division=0)),
-            'recall': float(recall_score(y_test, y_pred, zero_division=0)),
-            'f1': float(f1_score(y_test, y_pred, zero_division=0)),
-            'accuracy': float((y_pred == y_test).mean())
-        }
+        # Calculate in-sample (training) metrics
+        y_train_pred = self.model.predict(X_train)
+        self._train_metrics = self._compute_metrics(y_train, y_train_pred)
+
+        # Calculate out-of-sample (test) metrics if we have a test set
+        if has_test_set:
+            y_test_pred = self.model.predict(X_test)
+            self._test_metrics = self._compute_metrics(y_test, y_test_pred)
+            self._confusion_matrix = self._compute_confusion_matrix(y_test, y_test_pred)
+            self._metrics = self._test_metrics.copy()
+        else:
+            self._test_metrics = {}
+            self._confusion_matrix = {}
+            self._metrics = self._train_metrics.copy()
 
     def get_feature_importance(self) -> Dict[str, float]:
         """Get feature importance from gradient boosting."""

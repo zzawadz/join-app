@@ -36,7 +36,26 @@
     </header>
 
     <main class="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8 mt-8">
-        <!-- Progress Bar -->
+        <!-- Tab Navigation -->
+        <div id="tab-navigation" class="mb-4 hidden">
+            <nav class="flex space-x-4" aria-label="Tabs">
+                <button onclick="showTab('labeling')" id="tab-labeling" class="px-3 py-2 font-medium text-sm rounded-md bg-indigo-100 text-indigo-700">
+                    Labeling
+                </button>
+                <button onclick="showTab('model-stats')" id="tab-model-stats" class="px-3 py-2 font-medium text-sm rounded-md text-gray-500 hover:text-gray-700 hover:bg-gray-100">
+                    Model Stats
+                </button>
+                <button onclick="openConfigModal()" class="ml-auto px-3 py-2 font-medium text-sm rounded-md text-gray-500 hover:text-gray-700 hover:bg-gray-100 flex items-center">
+                    <svg class="h-4 w-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                    Configure
+                </button>
+            </nav>
+        </div>
+
+        <!-- Progress Bar (Enhanced) -->
         <div id="progress-section" class="mb-6 bg-white rounded-lg shadow p-4">
             <div class="flex justify-between text-sm text-gray-600 mb-2">
                 <span>Progress: <span id="labeled-count">0</span> / <span id="target-count">100</span> pairs labeled</span>
@@ -45,10 +64,27 @@
             <div class="w-full bg-gray-200 rounded-full h-2.5">
                 <div id="progress-bar" class="bg-indigo-600 h-2.5 rounded-full transition-all duration-300" style="width: 0%"></div>
             </div>
-            <div class="mt-2 flex justify-between text-xs text-gray-500">
-                <span>Matches: <span id="match-count" class="text-green-600 font-medium">0</span></span>
-                <span>Non-matches: <span id="non-match-count" class="text-red-600 font-medium">0</span></span>
-                <span>Uncertain: <span id="uncertain-count" class="text-yellow-600 font-medium">0</span></span>
+            <div class="mt-3 grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                <div class="text-gray-500">
+                    <span class="font-medium text-green-600" id="match-count">0</span> Matches
+                </div>
+                <div class="text-gray-500">
+                    <span class="font-medium text-red-600" id="non-match-count">0</span> Non-matches
+                </div>
+                <div class="text-gray-500">
+                    <span class="font-medium text-yellow-600" id="uncertain-count">0</span> Uncertain
+                </div>
+                <div class="text-gray-500">
+                    <span class="font-medium text-indigo-600" id="candidate-count">-</span> Remaining
+                </div>
+            </div>
+            <div class="mt-2 flex justify-between text-xs text-gray-400">
+                <span id="timing-stats" class="hidden">
+                    <span id="total-time">0m 0s</span> total | ~<span id="avg-time">0</span>s per pair
+                </span>
+                <span id="strategy-display" class="hidden">
+                    Strategy: <span id="current-strategy" class="font-medium">-</span>
+                </span>
             </div>
         </div>
 
@@ -104,6 +140,17 @@
                     <div id="similarity-scores" class="flex flex-wrap gap-2">
                         <!-- Populated dynamically -->
                     </div>
+
+                    <!-- Why this pair? Collapsible -->
+                    <details id="pair-explanation" class="mt-4 hidden">
+                        <summary class="text-xs text-gray-500 cursor-pointer hover:text-gray-700">
+                            Why this pair?
+                        </summary>
+                        <div class="mt-2 text-xs text-gray-600 bg-white rounded p-2 border">
+                            <p id="explanation-text">-</p>
+                            <p id="explanation-details" class="mt-1 text-gray-400"></p>
+                        </div>
+                    </details>
                 </div>
 
                 <!-- Action Buttons -->
@@ -163,7 +210,162 @@
                 </div>
             </div>
         </div>
+
+        <!-- Model Stats Tab (hidden initially) -->
+        <div id="model-stats-section" class="hidden">
+            <div class="bg-white rounded-lg shadow p-6">
+                <div id="model-stats-empty" class="text-center py-8">
+                    <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                    </svg>
+                    <h3 class="mt-4 text-lg font-medium text-gray-900">No Model Trained Yet</h3>
+                    <p class="mt-2 text-sm text-gray-500">Train a model to see performance statistics and metrics.</p>
+                    <button onclick="retrainModel()" class="mt-4 inline-flex items-center rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500">
+                        Train Model Now
+                    </button>
+                </div>
+
+                <div id="model-stats-content" class="hidden">
+                    <!-- Metrics Cards -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                        <div class="bg-blue-50 rounded-lg p-4">
+                            <h4 class="text-sm font-medium text-blue-900 mb-2">Training Set (In-Sample)</h4>
+                            <div class="grid grid-cols-3 gap-2 text-center">
+                                <div>
+                                    <div class="text-2xl font-bold text-blue-700" id="train-precision">-</div>
+                                    <div class="text-xs text-blue-600">Precision</div>
+                                </div>
+                                <div>
+                                    <div class="text-2xl font-bold text-blue-700" id="train-recall">-</div>
+                                    <div class="text-xs text-blue-600">Recall</div>
+                                </div>
+                                <div>
+                                    <div class="text-2xl font-bold text-blue-700" id="train-f1">-</div>
+                                    <div class="text-xs text-blue-600">F1 Score</div>
+                                </div>
+                            </div>
+                            <div class="mt-2 text-xs text-blue-500 text-center" id="train-samples">- samples</div>
+                        </div>
+
+                        <div class="bg-green-50 rounded-lg p-4">
+                            <h4 class="text-sm font-medium text-green-900 mb-2">Test Set (Out-of-Sample)</h4>
+                            <div id="test-metrics-content" class="grid grid-cols-3 gap-2 text-center">
+                                <div>
+                                    <div class="text-2xl font-bold text-green-700" id="test-precision">-</div>
+                                    <div class="text-xs text-green-600">Precision</div>
+                                </div>
+                                <div>
+                                    <div class="text-2xl font-bold text-green-700" id="test-recall">-</div>
+                                    <div class="text-xs text-green-600">Recall</div>
+                                </div>
+                                <div>
+                                    <div class="text-2xl font-bold text-green-700" id="test-f1">-</div>
+                                    <div class="text-xs text-green-600">F1 Score</div>
+                                </div>
+                            </div>
+                            <div id="test-metrics-empty" class="hidden text-center py-4 text-sm text-gray-500">
+                                Not enough data for test set
+                            </div>
+                            <div class="mt-2 text-xs text-green-500 text-center" id="test-samples">- samples</div>
+                        </div>
+                    </div>
+
+                    <!-- Overfitting Warning -->
+                    <div id="overfitting-warning" class="hidden mb-4 bg-yellow-50 border border-yellow-200 rounded-lg p-3 flex items-center">
+                        <svg class="h-5 w-5 text-yellow-600 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                        </svg>
+                        <span class="text-sm text-yellow-800">Model may be overfitting. Training metrics are significantly better than test metrics.</span>
+                    </div>
+
+                    <!-- Feature Importance -->
+                    <div class="mb-6">
+                        <h4 class="text-sm font-medium text-gray-900 mb-3">Feature Importance</h4>
+                        <div id="feature-importance" class="space-y-2">
+                            <!-- Populated dynamically -->
+                        </div>
+                    </div>
+
+                    <!-- Training History -->
+                    <div>
+                        <div class="flex items-center justify-between mb-3">
+                            <h4 class="text-sm font-medium text-gray-900">Training History</h4>
+                            <select id="history-retention" onchange="updateHistoryRetention(this.value)" class="text-xs border-gray-300 rounded-md">
+                                <option value="5">Keep last 5</option>
+                                <option value="10" selected>Keep last 10</option>
+                                <option value="20">Keep last 20</option>
+                                <option value="0">Keep all</option>
+                            </select>
+                        </div>
+                        <div id="training-history" class="text-sm text-gray-500">
+                            No training history yet
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
     </main>
+</div>
+
+<!-- Configuration Modal -->
+<div id="config-modal" class="hidden fixed inset-0 z-50 overflow-y-auto">
+    <div class="flex items-center justify-center min-h-screen px-4">
+        <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" onclick="closeConfigModal()"></div>
+
+        <div class="relative bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div class="px-6 py-4 border-b border-gray-200">
+                <div class="flex items-center justify-between">
+                    <h3 class="text-lg font-medium text-gray-900">Column Mappings & Comparison Config</h3>
+                    <button onclick="closeConfigModal()" class="text-gray-400 hover:text-gray-500">
+                        <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
+            </div>
+
+            <div class="px-6 py-4">
+                <div id="config-loading" class="text-center py-8">
+                    <svg class="animate-spin h-8 w-8 text-indigo-600 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                </div>
+
+                <div id="config-content" class="hidden">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead>
+                            <tr>
+                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Source Column</th>
+                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Target Column</th>
+                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Method</th>
+                                <th class="px-3 py-2"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="config-mappings" class="divide-y divide-gray-200">
+                            <!-- Populated dynamically -->
+                        </tbody>
+                    </table>
+
+                    <button onclick="addMapping()" class="mt-3 text-sm text-indigo-600 hover:text-indigo-500 flex items-center">
+                        <svg class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                        </svg>
+                        Add Mapping
+                    </button>
+                </div>
+            </div>
+
+            <div class="px-6 py-4 border-t border-gray-200 flex justify-end space-x-3">
+                <button onclick="closeConfigModal()" class="rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50">
+                    Cancel
+                </button>
+                <button onclick="saveConfig()" class="rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500">
+                    Save Changes
+                </button>
+            </div>
+        </div>
+    </div>
 </div>
 {% endblock %}
 
@@ -172,7 +374,10 @@
     const projectId = {{ project_id }};
     let sessionId = null;
     let currentPair = null;
+    let currentExplanation = null;
     let labelStartTime = null;
+    let currentStrategy = null;
+    let configData = null;
 
     if (!isAuthenticated()) {
         window.location.href = '/login';
@@ -181,6 +386,7 @@
     // Keyboard shortcuts
     document.addEventListener('keydown', function(e) {
         if (!currentPair) return;
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
 
         switch(e.key.toLowerCase()) {
             case 'y':
@@ -197,6 +403,28 @@
                 break;
         }
     });
+
+    // Tab switching
+    function showTab(tabName) {
+        const tabs = ['labeling', 'model-stats'];
+        tabs.forEach(tab => {
+            const section = document.getElementById(tab === 'labeling' ? 'labeling-section' : 'model-stats-section');
+            const tabBtn = document.getElementById(`tab-${tab}`);
+            if (tab === tabName) {
+                section.classList.remove('hidden');
+                tabBtn.classList.add('bg-indigo-100', 'text-indigo-700');
+                tabBtn.classList.remove('text-gray-500');
+            } else {
+                section.classList.add('hidden');
+                tabBtn.classList.remove('bg-indigo-100', 'text-indigo-700');
+                tabBtn.classList.add('text-gray-500');
+            }
+        });
+
+        if (tabName === 'model-stats') {
+            loadModelStats();
+        }
+    }
 
     async function startSession() {
         const strategy = document.getElementById('strategy').value;
@@ -218,13 +446,17 @@
             if (response.ok) {
                 const session = await response.json();
                 sessionId = session.id;
+                currentStrategy = strategy;
 
                 document.getElementById('start-section').classList.add('hidden');
                 document.getElementById('labeling-section').classList.remove('hidden');
                 document.getElementById('session-controls').classList.remove('hidden');
+                document.getElementById('tab-navigation').classList.remove('hidden');
                 document.getElementById('target-count').textContent = session.target_labels;
+                document.getElementById('current-strategy').textContent = strategy === 'uncertainty' ? 'Uncertainty Sampling' : 'Random';
+                document.getElementById('strategy-display').classList.remove('hidden');
 
-                loadNextPair();
+                loadNextPairWithExplanation();
             } else {
                 const data = await response.json();
                 showToast(data.detail || 'Failed to start session', 'error');
@@ -234,27 +466,30 @@
         }
     }
 
-    async function loadNextPair() {
+    async function loadNextPairWithExplanation() {
         document.getElementById('loading-pair').classList.remove('hidden');
 
         try {
-            const response = await fetch(`/api/labeling/sessions/${sessionId}/next`, {
+            const response = await fetch(`/api/labeling/sessions/${sessionId}/next-with-explanation`, {
                 headers: { 'Authorization': 'Bearer ' + getAuthToken() }
             });
 
             document.getElementById('loading-pair').classList.add('hidden');
 
             if (response.status === 204) {
-                // No more pairs
                 document.getElementById('no-pairs').classList.remove('hidden');
                 currentPair = null;
+                currentExplanation = null;
                 return;
             }
 
             if (response.ok) {
-                currentPair = await response.json();
+                const data = await response.json();
+                currentPair = data;
+                currentExplanation = data.explanation;
                 labelStartTime = Date.now();
-                renderPair(currentPair);
+                renderPair(data);
+                renderExplanation(data.explanation);
             } else {
                 const data = await response.json();
                 showToast(data.detail || 'Failed to load pair', 'error');
@@ -270,13 +505,11 @@
         const rightRecord = document.getElementById('right-record');
         const scoresDiv = document.getElementById('similarity-scores');
 
-        // Render records
         const mappedColumns = Object.keys(pair.column_mappings);
 
         leftRecord.innerHTML = renderRecord(pair.left_record, mappedColumns);
         rightRecord.innerHTML = renderRecord(pair.right_record, mappedColumns.map(c => pair.column_mappings[c]));
 
-        // Render similarity scores
         scoresDiv.innerHTML = Object.entries(pair.comparison_vector).map(([col, score]) => {
             const percent = Math.round(score * 100);
             let colorClass = 'bg-gray-100 text-gray-800';
@@ -288,6 +521,32 @@
                 ${col}: ${percent}%
             </span>`;
         }).join('');
+    }
+
+    function renderExplanation(explanation) {
+        const explanationDiv = document.getElementById('pair-explanation');
+        const textEl = document.getElementById('explanation-text');
+        const detailsEl = document.getElementById('explanation-details');
+
+        explanationDiv.classList.remove('hidden');
+
+        const reasonMap = {
+            'uncertainty_sampling': 'Selected via uncertainty sampling - model is most uncertain about this pair',
+            'random': 'Randomly selected',
+            'no_model': 'Randomly selected (no trained model yet)',
+            'random_fallback': 'Randomly selected (model prediction failed)'
+        };
+
+        textEl.textContent = reasonMap[explanation.selection_reason] || explanation.selection_reason;
+
+        let details = `Evaluated ${explanation.candidates_evaluated} candidate pairs`;
+        if (explanation.uncertainty_score !== null) {
+            details += ` | Uncertainty: ${(0.5 - explanation.uncertainty_score).toFixed(3)}`;
+        }
+        if (explanation.model_probability !== null) {
+            details += ` | Match probability: ${(explanation.model_probability * 100).toFixed(1)}%`;
+        }
+        detailsEl.textContent = details;
     }
 
     function renderRecord(record, highlightColumns) {
@@ -326,7 +585,7 @@
             if (response.ok) {
                 const data = await response.json();
                 updateProgress(data.total_labeled, data.target_labels);
-                loadNextPair();
+                loadNextPairWithExplanation();
             } else {
                 showToast('Failed to save label', 'error');
             }
@@ -343,7 +602,7 @@
             headers: { 'Authorization': 'Bearer ' + getAuthToken() }
         });
 
-        loadNextPair();
+        loadNextPairWithExplanation();
     }
 
     function updateProgress(labeled, target) {
@@ -352,15 +611,14 @@
         document.getElementById('progress-percent').textContent = percent + '%';
         document.getElementById('progress-bar').style.width = percent + '%';
 
-        // Update counts
-        loadProgressDetails();
+        loadDetailedProgress();
     }
 
-    async function loadProgressDetails() {
+    async function loadDetailedProgress() {
         if (!sessionId) return;
 
         try {
-            const response = await fetch(`/api/labeling/sessions/${sessionId}/progress`, {
+            const response = await fetch(`/api/labeling/sessions/${sessionId}/detailed-progress`, {
                 headers: { 'Authorization': 'Bearer ' + getAuthToken() }
             });
 
@@ -369,6 +627,17 @@
                 document.getElementById('match-count').textContent = progress.matches;
                 document.getElementById('non-match-count').textContent = progress.non_matches;
                 document.getElementById('uncertain-count').textContent = progress.uncertain;
+                document.getElementById('candidate-count').textContent = progress.estimated_remaining;
+
+                // Update timing stats
+                if (progress.total_time_ms > 0) {
+                    const totalSecs = Math.floor(progress.total_time_ms / 1000);
+                    const mins = Math.floor(totalSecs / 60);
+                    const secs = totalSecs % 60;
+                    document.getElementById('total-time').textContent = `${mins}m ${secs}s`;
+                    document.getElementById('avg-time').textContent = (progress.avg_time_per_pair_ms / 1000).toFixed(1);
+                    document.getElementById('timing-stats').classList.remove('hidden');
+                }
             }
         } catch (error) {
             // Silently fail
@@ -386,6 +655,8 @@
 
             if (response.ok) {
                 showToast('Model retraining started', 'success');
+                // Refresh model stats after a delay
+                setTimeout(() => loadModelStats(), 3000);
             } else {
                 const data = await response.json();
                 showToast(data.detail || 'Failed to start retraining', 'error');
@@ -405,6 +676,321 @@
             });
 
             window.location.href = `/projects/${projectId}`;
+        } catch (error) {
+            showToast('An error occurred', 'error');
+        }
+    }
+
+    // Configuration Modal
+    async function openConfigModal() {
+        document.getElementById('config-modal').classList.remove('hidden');
+        document.getElementById('config-loading').classList.remove('hidden');
+        document.getElementById('config-content').classList.add('hidden');
+
+        try {
+            const response = await fetch(`/api/labeling/projects/${projectId}/comparison-config`, {
+                headers: { 'Authorization': 'Bearer ' + getAuthToken() }
+            });
+
+            if (response.ok) {
+                configData = await response.json();
+                renderConfigModal(configData);
+            }
+        } catch (error) {
+            showToast('Failed to load configuration', 'error');
+        }
+    }
+
+    function closeConfigModal() {
+        document.getElementById('config-modal').classList.add('hidden');
+    }
+
+    function renderConfigModal(data) {
+        document.getElementById('config-loading').classList.add('hidden');
+        document.getElementById('config-content').classList.remove('hidden');
+
+        const tbody = document.getElementById('config-mappings');
+        const mappings = data.column_mappings || {};
+        const config = data.comparison_config || {};
+
+        tbody.innerHTML = Object.entries(mappings).map(([source, target], idx) => {
+            const method = config[source]?.method || 'jaro_winkler';
+            return createMappingRow(source, target, method, data.source_columns, data.target_columns, idx);
+        }).join('');
+    }
+
+    function createMappingRow(source, target, method, sourceColumns, targetColumns, idx) {
+        const methods = ['exact', 'jaro_winkler', 'levenshtein', 'soundex', 'numeric', 'date'];
+        return `
+            <tr data-idx="${idx}">
+                <td class="px-3 py-2">
+                    <select class="source-col text-sm border-gray-300 rounded-md w-full">
+                        ${sourceColumns.map(c => `<option value="${c}" ${c === source ? 'selected' : ''}>${c}</option>`).join('')}
+                    </select>
+                </td>
+                <td class="px-3 py-2">
+                    <select class="target-col text-sm border-gray-300 rounded-md w-full">
+                        ${targetColumns.map(c => `<option value="${c}" ${c === target ? 'selected' : ''}>${c}</option>`).join('')}
+                    </select>
+                </td>
+                <td class="px-3 py-2">
+                    <select class="method text-sm border-gray-300 rounded-md w-full">
+                        ${methods.map(m => `<option value="${m}" ${m === method ? 'selected' : ''}>${m.replace('_', ' ')}</option>`).join('')}
+                    </select>
+                </td>
+                <td class="px-3 py-2">
+                    <button onclick="removeMapping(this)" class="text-red-600 hover:text-red-800">
+                        <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                </td>
+            </tr>
+        `;
+    }
+
+    function addMapping() {
+        const tbody = document.getElementById('config-mappings');
+        const idx = tbody.children.length;
+        const row = createMappingRow(
+            configData.source_columns[0] || '',
+            configData.target_columns[0] || '',
+            'jaro_winkler',
+            configData.source_columns,
+            configData.target_columns,
+            idx
+        );
+        tbody.insertAdjacentHTML('beforeend', row);
+    }
+
+    function removeMapping(btn) {
+        btn.closest('tr').remove();
+    }
+
+    async function saveConfig() {
+        const rows = document.querySelectorAll('#config-mappings tr');
+        const columnMappings = {};
+        const comparisonConfig = {};
+
+        rows.forEach(row => {
+            const source = row.querySelector('.source-col').value;
+            const target = row.querySelector('.target-col').value;
+            const method = row.querySelector('.method').value;
+
+            columnMappings[source] = target;
+            comparisonConfig[source] = { method };
+        });
+
+        try {
+            const response = await fetch(`/api/labeling/projects/${projectId}/comparison-config`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + getAuthToken()
+                },
+                body: JSON.stringify({
+                    column_mappings: columnMappings,
+                    comparison_config: comparisonConfig
+                })
+            });
+
+            if (response.ok) {
+                showToast('Configuration saved', 'success');
+                closeConfigModal();
+            } else {
+                showToast('Failed to save configuration', 'error');
+            }
+        } catch (error) {
+            showToast('An error occurred', 'error');
+        }
+    }
+
+    // Model Stats
+    let currentModelId = null;
+
+    async function loadModelStats() {
+        try {
+            // First, get the active model for this project
+            const modelsResponse = await fetch(`/api/models/projects/${projectId}/models`, {
+                headers: { 'Authorization': 'Bearer ' + getAuthToken() }
+            });
+
+            if (!modelsResponse.ok) {
+                showModelStatsEmpty();
+                return;
+            }
+
+            const models = await modelsResponse.json();
+            const activeModel = models.find(m => m.is_active);
+
+            if (!activeModel || !activeModel.trained_at) {
+                showModelStatsEmpty();
+                return;
+            }
+
+            currentModelId = activeModel.id;
+
+            // Get model statistics
+            const statsResponse = await fetch(`/api/models/${activeModel.id}/statistics`, {
+                headers: { 'Authorization': 'Bearer ' + getAuthToken() }
+            });
+
+            if (!statsResponse.ok) {
+                showModelStatsEmpty();
+                return;
+            }
+
+            const stats = await statsResponse.json();
+            renderModelStats(stats);
+
+            // Get training history
+            const historyResponse = await fetch(`/api/models/${activeModel.id}/training-history?limit=10`, {
+                headers: { 'Authorization': 'Bearer ' + getAuthToken() }
+            });
+
+            if (historyResponse.ok) {
+                const history = await historyResponse.json();
+                renderTrainingHistory(history);
+            }
+        } catch (error) {
+            console.error('Failed to load model stats:', error);
+            showModelStatsEmpty();
+        }
+    }
+
+    function showModelStatsEmpty() {
+        document.getElementById('model-stats-empty').classList.remove('hidden');
+        document.getElementById('model-stats-content').classList.add('hidden');
+    }
+
+    function renderModelStats(stats) {
+        document.getElementById('model-stats-empty').classList.add('hidden');
+        document.getElementById('model-stats-content').classList.remove('hidden');
+
+        // Training metrics
+        document.getElementById('train-precision').textContent = formatPercent(stats.train_precision);
+        document.getElementById('train-recall').textContent = formatPercent(stats.train_recall);
+        document.getElementById('train-f1').textContent = formatPercent(stats.train_f1);
+        document.getElementById('train-samples').textContent = stats.train_samples ? `${stats.train_samples} samples` : '- samples';
+
+        // Test metrics
+        if (stats.test_f1 !== null && stats.test_f1 !== undefined) {
+            document.getElementById('test-metrics-content').classList.remove('hidden');
+            document.getElementById('test-metrics-empty').classList.add('hidden');
+            document.getElementById('test-precision').textContent = formatPercent(stats.test_precision);
+            document.getElementById('test-recall').textContent = formatPercent(stats.test_recall);
+            document.getElementById('test-f1').textContent = formatPercent(stats.test_f1);
+            document.getElementById('test-samples').textContent = stats.test_samples ? `${stats.test_samples} samples` : '- samples';
+        } else {
+            document.getElementById('test-metrics-content').classList.add('hidden');
+            document.getElementById('test-metrics-empty').classList.remove('hidden');
+            document.getElementById('test-samples').textContent = '';
+        }
+
+        // Overfitting warning
+        if (stats.overfitting_warning) {
+            document.getElementById('overfitting-warning').classList.remove('hidden');
+        } else {
+            document.getElementById('overfitting-warning').classList.add('hidden');
+        }
+
+        // Feature importance
+        renderFeatureImportance(stats.feature_importance);
+
+        // History retention selector
+        const retentionSelect = document.getElementById('history-retention');
+        const currentRetention = stats.history_retention || 0;
+        retentionSelect.value = currentRetention.toString();
+    }
+
+    function formatPercent(value) {
+        if (value === null || value === undefined) return '-';
+        return (value * 100).toFixed(1) + '%';
+    }
+
+    function renderFeatureImportance(importance) {
+        const container = document.getElementById('feature-importance');
+
+        if (!importance || Object.keys(importance).length === 0) {
+            container.innerHTML = '<p class="text-sm text-gray-500">No feature importance data available</p>';
+            return;
+        }
+
+        // Sort by importance
+        const sorted = Object.entries(importance).sort((a, b) => b[1] - a[1]);
+        const maxValue = sorted[0][1];
+
+        container.innerHTML = sorted.map(([feature, value]) => {
+            const width = (value / maxValue) * 100;
+            return `
+                <div class="flex items-center">
+                    <div class="w-32 text-sm text-gray-600 truncate">${feature}</div>
+                    <div class="flex-1 ml-2">
+                        <div class="bg-gray-200 rounded-full h-3">
+                            <div class="bg-indigo-600 rounded-full h-3" style="width: ${width}%"></div>
+                        </div>
+                    </div>
+                    <div class="w-16 text-right text-sm text-gray-500">${value.toFixed(3)}</div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    function renderTrainingHistory(history) {
+        const container = document.getElementById('training-history');
+
+        if (!history || history.length === 0) {
+            container.innerHTML = '<p class="text-sm text-gray-500">No training history yet</p>';
+            return;
+        }
+
+        // Show history as a simple table
+        container.innerHTML = `
+            <div class="overflow-x-auto">
+                <table class="min-w-full text-sm">
+                    <thead>
+                        <tr class="text-left text-gray-500 border-b">
+                            <th class="pb-2 pr-4">#</th>
+                            <th class="pb-2 pr-4">Pairs</th>
+                            <th class="pb-2 pr-4">Train F1</th>
+                            <th class="pb-2 pr-4">Test F1</th>
+                            <th class="pb-2">Date</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${history.map(h => `
+                            <tr class="border-b border-gray-100">
+                                <td class="py-1 pr-4 text-gray-600">${h.iteration}</td>
+                                <td class="py-1 pr-4">${h.training_pairs_count}</td>
+                                <td class="py-1 pr-4">${formatPercent(h.train_f1)}</td>
+                                <td class="py-1 pr-4">${formatPercent(h.test_f1)}</td>
+                                <td class="py-1 text-gray-500">${new Date(h.trained_at).toLocaleDateString()}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+        `;
+    }
+
+    async function updateHistoryRetention(value) {
+        if (!currentModelId) return;
+
+        try {
+            const response = await fetch(`/api/models/${currentModelId}/history-retention`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + getAuthToken()
+                },
+                body: JSON.stringify({ retention: parseInt(value) })
+            });
+
+            if (response.ok) {
+                showToast('History retention updated', 'success');
+            } else {
+                showToast('Failed to update retention', 'error');
+            }
         } catch (error) {
             showToast('An error occurred', 'error');
         }

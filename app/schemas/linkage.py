@@ -76,3 +76,80 @@ class ModelDetail(ModelResponse):
 
     class Config:
         from_attributes = True
+
+
+class TrainingHistoryResponse(BaseModel):
+    """Training history entry."""
+    id: int
+    model_id: int
+    iteration: int
+    training_pairs_count: int
+
+    # In-sample metrics
+    train_precision: Optional[float] = None
+    train_recall: Optional[float] = None
+    train_f1: Optional[float] = None
+    train_accuracy: Optional[float] = None
+    train_samples: Optional[int] = None
+
+    # Out-of-sample metrics
+    test_precision: Optional[float] = None
+    test_recall: Optional[float] = None
+    test_f1: Optional[float] = None
+    test_accuracy: Optional[float] = None
+    test_samples: Optional[int] = None
+
+    # Cross-validation
+    cv_f1_mean: Optional[float] = None
+    cv_f1_std: Optional[float] = None
+
+    feature_importance: Optional[Dict[str, float]] = None
+    confusion_matrix: Optional[Dict[str, int]] = None
+    trained_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class ModelStatisticsResponse(BaseModel):
+    """Comprehensive model statistics."""
+    model_id: int
+    model_name: str
+    model_type: str
+    is_active: bool
+    trained_at: Optional[datetime] = None
+    training_pairs_count: int
+
+    # Current train metrics
+    train_precision: Optional[float] = None
+    train_recall: Optional[float] = None
+    train_f1: Optional[float] = None
+    train_accuracy: Optional[float] = None
+    train_samples: Optional[int] = None
+
+    # Current test metrics
+    test_precision: Optional[float] = None
+    test_recall: Optional[float] = None
+    test_f1: Optional[float] = None
+    test_accuracy: Optional[float] = None
+    test_samples: Optional[int] = None
+
+    # Cross-validation
+    cv_f1_mean: Optional[float] = None
+    cv_f1_std: Optional[float] = None
+
+    feature_importance: Optional[Dict[str, float]] = None
+    confusion_matrix: Optional[Dict[str, int]] = None
+
+    # Overfitting indicator
+    overfitting_warning: bool = False
+    overfitting_details: Optional[str] = None
+
+    # History info
+    history_retention: Optional[int] = None
+    history_count: int = 0
+
+
+class HistoryRetentionUpdate(BaseModel):
+    """Request to update history retention setting."""
+    retention: int  # 0 = keep all, positive = limit
