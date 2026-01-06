@@ -8,7 +8,7 @@ import random
 from app.db.database import get_db
 from app.db.models import (
     User, Project, Dataset, LabelingSession, LabeledPair,
-    LinkageModel, PairLabel
+    LinkageModel, PairLabel, LinkageJob, RecordPair, JobStatus
 )
 from app.api.auth import get_current_active_user
 from app.api.deps import get_project_or_404
@@ -20,7 +20,7 @@ from app.schemas.labeling import (
 )
 from app.core.linkage.active_learning import (
     select_informative_pair, select_informative_pair_with_explanation,
-    count_candidate_pairs
+    count_candidate_pairs, select_from_linkage_results
 )
 from app.core.linkage.comparators import compare_records
 
@@ -323,19 +323,39 @@ def get_labeled_pairs(
     project_id: int,
     limit: int = 100,
     offset: int = 0,
+    label: Optional[str] = None,
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
-    """Get all labeled pairs for a project."""
+    """Get all labeled pairs for a project, optionally filtered by label."""
     project = get_project_or_404(project_id, current_user, db)
 
-    pairs = db.query(LabeledPair).filter(
+    query = db.query(LabeledPair).filter(
         LabeledPair.project_id == project_id
-    ).order_by(LabeledPair.created_at.desc()).offset(offset).limit(limit).all()
+    )
 
-    total = db.query(LabeledPair).filter(
+    # Filter by label if provided
+    if label:
+        try:
+            label_enum = PairLabel(label)
+            query = query.filter(LabeledPair.label == label_enum)
+        except ValueError:
+            pass  # Invalid label value, ignore filter
+
+    pairs = query.order_by(LabeledPair.created_at.desc()).offset(offset).limit(limit).all()
+
+    # Get total count with same filter
+    count_query = db.query(LabeledPair).filter(
         LabeledPair.project_id == project_id
-    ).count()
+    )
+    if label:
+        try:
+            label_enum = PairLabel(label)
+            count_query = count_query.filter(LabeledPair.label == label_enum)
+        except ValueError:
+            pass
+
+    total = count_query.count()
 
     return {
         "pairs": pairs,
@@ -462,17 +482,28 @@ def get_next_pair_with_explanation(
         LinkageModel.is_active == True
     ).first()
 
-    # Select next pair with explanation
-    result = select_informative_pair_with_explanation(
-        source_df, target_df,
-        project.column_mappings or {},
-        project.comparison_config or {},
-        project.blocking_config or {},
-        labeled_pairs,
-        active_model,
-        strategy=session.strategy,
-        is_dedup=(project.linkage_type.value == "deduplication")
-    )
+    # For linkage_priority strategy, first check linkage results
+    result = None
+    if session.strategy == "linkage_priority":
+        result = select_from_linkage_results(
+            db, project.id, source_df, target_df,
+            project.column_mappings or {},
+            project.comparison_config or {},
+            labeled_pairs
+        )
+
+    # Fall back to regular selection if no linkage results or other strategy
+    if result is None:
+        result = select_informative_pair_with_explanation(
+            source_df, target_df,
+            project.column_mappings or {},
+            project.comparison_config or {},
+            project.blocking_config or {},
+            labeled_pairs,
+            active_model,
+            strategy=session.strategy if session.strategy != "linkage_priority" else "uncertainty",
+            is_dedup=(project.linkage_type.value == "deduplication")
+        )
 
     if result is None:
         raise HTTPException(status_code=204, detail="No more pairs to label")
@@ -550,4 +581,153 @@ def get_comparison_config(
         "comparison_config": project.comparison_config or {},
         "source_columns": source_columns,
         "target_columns": target_columns
+    }
+
+
+@router.get("/projects/{project_id}/pending-linkage-matches")
+def get_pending_linkage_matches(
+    project_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get pairs from completed linkage jobs that are classified as matches
+    but have not yet been manually labeled for confirmation.
+    """
+    project = get_project_or_404(project_id, current_user, db)
+
+    # Get the most recent completed linkage job
+    latest_job = db.query(LinkageJob).filter(
+        LinkageJob.project_id == project_id,
+        LinkageJob.status == JobStatus.COMPLETED
+    ).order_by(LinkageJob.completed_at.desc()).first()
+
+    if not latest_job:
+        return {"pairs": [], "job_id": None, "total": 0}
+
+    # Get already labeled pair indices
+    labeled_pairs = db.query(LabeledPair).filter(
+        LabeledPair.project_id == project_id
+    ).all()
+    labeled_indices = set(
+        (lp.left_record.get("_idx"), lp.right_record.get("_idx"))
+        for lp in labeled_pairs
+        if lp.left_record and lp.right_record
+    )
+
+    # Get matched pairs from linkage results that haven't been labeled yet
+    match_pairs = db.query(RecordPair).filter(
+        RecordPair.job_id == latest_job.id,
+        RecordPair.classification == "match"
+    ).order_by(RecordPair.match_score.desc()).limit(100).all()
+
+    # Filter out already labeled pairs
+    pending_pairs = []
+    for pair in match_pairs:
+        if (pair.left_record_idx, pair.right_record_idx) not in labeled_indices:
+            pending_pairs.append({
+                "id": pair.id,
+                "left_idx": pair.left_record_idx,
+                "right_idx": pair.right_record_idx,
+                "match_score": pair.match_score,
+                "comparison_vector": pair.comparison_vector
+            })
+
+    return {
+        "pairs": pending_pairs,
+        "job_id": latest_job.id,
+        "total": len(pending_pairs)
+    }
+
+
+@router.get("/sessions/{session_id}/next-linkage-priority", response_model=LabelingPairWithExplanation)
+def get_next_pair_linkage_priority(
+    session_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get the next pair prioritizing linkage results marked as matches.
+    These pairs should be confirmed/rejected by the user first.
+    """
+    session = db.query(LabelingSession).filter(
+        LabelingSession.id == session_id,
+        LabelingSession.user_id == current_user.id
+    ).first()
+
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    if session.status != "active":
+        raise HTTPException(status_code=400, detail="Session is not active")
+
+    project = session.project
+
+    # Load datasets
+    import pandas as pd
+    datasets = {d.role: d for d in project.datasets}
+
+    if project.linkage_type.value == "deduplication":
+        df = pd.read_csv(datasets["dedupe"].file_path)
+        source_df = target_df = df
+    else:
+        source_df = pd.read_csv(datasets["source"].file_path)
+        target_df = pd.read_csv(datasets["target"].file_path)
+
+    # Get already labeled indices to exclude
+    labeled = db.query(LabeledPair).filter(
+        LabeledPair.project_id == project.id
+    ).all()
+    labeled_pairs = set((lp.left_record["_idx"], lp.right_record["_idx"])
+                       for lp in labeled if "_idx" in lp.left_record)
+
+    # First try to get from linkage results
+    result = select_from_linkage_results(
+        db, project.id, source_df, target_df,
+        project.column_mappings or {},
+        project.comparison_config or {},
+        labeled_pairs
+    )
+
+    if result is None:
+        # Fall back to regular selection
+        active_model = db.query(LinkageModel).filter(
+            LinkageModel.project_id == project.id,
+            LinkageModel.is_active == True
+        ).first()
+
+        result = select_informative_pair_with_explanation(
+            source_df, target_df,
+            project.column_mappings or {},
+            project.comparison_config or {},
+            project.blocking_config or {},
+            labeled_pairs,
+            active_model,
+            strategy=session.strategy if session.strategy != "linkage_priority" else "uncertainty",
+            is_dedup=(project.linkage_type.value == "deduplication")
+        )
+
+    if result is None:
+        raise HTTPException(status_code=204, detail="No more pairs to label")
+
+    left_record = source_df.iloc[result.left_idx].to_dict()
+    left_record["_idx"] = int(result.left_idx)
+
+    right_record = target_df.iloc[result.right_idx].to_dict()
+    right_record["_idx"] = int(result.right_idx)
+
+    explanation = PairExplanation(
+        selection_reason=result.selection_reason,
+        uncertainty_score=result.uncertainty_score,
+        model_probability=result.model_probability,
+        candidates_evaluated=result.candidates_evaluated
+    )
+
+    return {
+        "session_id": session_id,
+        "left_record": left_record,
+        "right_record": right_record,
+        "comparison_vector": result.comparison_vector,
+        "column_mappings": project.column_mappings or {},
+        "explanation": explanation
     }

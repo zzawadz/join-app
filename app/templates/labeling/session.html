@@ -42,6 +42,9 @@
                 <button onclick="showTab('labeling')" id="tab-labeling" class="px-3 py-2 font-medium text-sm rounded-md bg-indigo-100 text-indigo-700">
                     Labeling
                 </button>
+                <button onclick="showTab('history')" id="tab-history" class="px-3 py-2 font-medium text-sm rounded-md text-gray-500 hover:text-gray-700 hover:bg-gray-100">
+                    Labeled Pairs
+                </button>
                 <button onclick="showTab('model-stats')" id="tab-model-stats" class="px-3 py-2 font-medium text-sm rounded-md text-gray-500 hover:text-gray-700 hover:bg-gray-100">
                     Model Stats
                 </button>
@@ -99,6 +102,7 @@
                 <div>
                     <label for="strategy" class="block text-sm font-medium text-gray-700">Strategy</label>
                     <select id="strategy" class="mt-1 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm px-3 py-2 border">
+                        <option value="linkage_priority">Linkage Results First</option>
                         <option value="uncertainty">Uncertainty Sampling</option>
                         <option value="random">Random</option>
                     </select>
@@ -207,6 +211,74 @@
                     <a href="/projects/{{ project_id }}/linkage" class="inline-flex items-center rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500">
                         Run Linkage
                     </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Labeled Pairs History Tab (hidden initially) -->
+        <div id="history-section" class="hidden">
+            <div class="bg-white rounded-lg shadow">
+                <!-- Linkage Results Banner -->
+                <div id="linkage-results-banner" class="hidden bg-blue-50 border-b border-blue-200 px-6 py-3">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center">
+                            <svg class="h-5 w-5 text-blue-600 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            <span class="text-sm text-blue-800">
+                                <strong id="linkage-match-count">0</strong> pairs from linkage results need confirmation
+                            </span>
+                        </div>
+                        <button onclick="reviewLinkageMatches()" class="text-sm text-blue-600 hover:text-blue-800 font-medium">
+                            Review Now
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Filter Controls -->
+                <div class="px-6 py-4 border-b border-gray-200">
+                    <div class="flex items-center justify-between">
+                        <div class="flex space-x-2">
+                            <button onclick="filterHistory('all')" id="filter-all" class="px-3 py-1.5 text-xs font-medium rounded-md bg-gray-100 text-gray-700">
+                                All
+                            </button>
+                            <button onclick="filterHistory('match')" id="filter-match" class="px-3 py-1.5 text-xs font-medium rounded-md text-gray-500 hover:bg-gray-100">
+                                Matches
+                            </button>
+                            <button onclick="filterHistory('non_match')" id="filter-non_match" class="px-3 py-1.5 text-xs font-medium rounded-md text-gray-500 hover:bg-gray-100">
+                                Non-Matches
+                            </button>
+                            <button onclick="filterHistory('uncertain')" id="filter-uncertain" class="px-3 py-1.5 text-xs font-medium rounded-md text-gray-500 hover:bg-gray-100">
+                                Uncertain
+                            </button>
+                        </div>
+                        <span class="text-sm text-gray-500" id="history-total">0 pairs</span>
+                    </div>
+                </div>
+
+                <!-- Labeled Pairs List -->
+                <div id="history-list" class="divide-y divide-gray-200 max-h-[60vh] overflow-y-auto">
+                    <!-- Populated dynamically -->
+                </div>
+
+                <!-- Empty State -->
+                <div id="history-empty" class="hidden text-center py-12">
+                    <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                    </svg>
+                    <h3 class="mt-4 text-lg font-medium text-gray-900">No labeled pairs yet</h3>
+                    <p class="mt-2 text-sm text-gray-500">Start labeling pairs to build your training dataset.</p>
+                </div>
+
+                <!-- Pagination -->
+                <div id="history-pagination" class="px-6 py-3 border-t border-gray-200 flex items-center justify-between">
+                    <button onclick="loadHistoryPage('prev')" id="history-prev" class="px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 disabled:opacity-50" disabled>
+                        Previous
+                    </button>
+                    <span class="text-sm text-gray-500" id="history-page-info">Page 1</span>
+                    <button onclick="loadHistoryPage('next')" id="history-next" class="px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 disabled:opacity-50">
+                        Next
+                    </button>
                 </div>
             </div>
         </div>
@@ -406,9 +478,15 @@
 
     // Tab switching
     function showTab(tabName) {
-        const tabs = ['labeling', 'model-stats'];
+        const tabs = ['labeling', 'history', 'model-stats'];
+        const sectionMap = {
+            'labeling': 'labeling-section',
+            'history': 'history-section',
+            'model-stats': 'model-stats-section'
+        };
+
         tabs.forEach(tab => {
-            const section = document.getElementById(tab === 'labeling' ? 'labeling-section' : 'model-stats-section');
+            const section = document.getElementById(sectionMap[tab]);
             const tabBtn = document.getElementById(`tab-${tab}`);
             if (tab === tabName) {
                 section.classList.remove('hidden');
@@ -423,6 +501,8 @@
 
         if (tabName === 'model-stats') {
             loadModelStats();
+        } else if (tabName === 'history') {
+            loadLabeledPairsHistory();
         }
     }
 
@@ -453,7 +533,12 @@
                 document.getElementById('session-controls').classList.remove('hidden');
                 document.getElementById('tab-navigation').classList.remove('hidden');
                 document.getElementById('target-count').textContent = session.target_labels;
-                document.getElementById('current-strategy').textContent = strategy === 'uncertainty' ? 'Uncertainty Sampling' : 'Random';
+                const strategyNames = {
+                    'linkage_priority': 'Linkage Results First',
+                    'uncertainty': 'Uncertainty Sampling',
+                    'random': 'Random'
+                };
+                document.getElementById('current-strategy').textContent = strategyNames[strategy] || strategy;
                 document.getElementById('strategy-display').classList.remove('hidden');
 
                 loadNextPairWithExplanation();
@@ -531,6 +616,7 @@
         explanationDiv.classList.remove('hidden');
 
         const reasonMap = {
+            'linkage_result_confirmation': 'From linkage results - classified as match, needs confirmation',
             'uncertainty_sampling': 'Selected via uncertainty sampling - model is most uncertain about this pair',
             'random': 'Randomly selected',
             'no_model': 'Randomly selected (no trained model yet)',
@@ -993,6 +1079,226 @@
             }
         } catch (error) {
             showToast('An error occurred', 'error');
+        }
+    }
+
+    // Labeled Pairs History
+    let historyPage = 0;
+    let historyLimit = 20;
+    let historyFilter = 'all';
+    let historyTotal = 0;
+    let pendingLinkageMatches = [];
+
+    async function loadLabeledPairsHistory() {
+        try {
+            const filterParam = historyFilter !== 'all' ? `&label=${historyFilter}` : '';
+            const response = await fetch(`/api/labeling/projects/${projectId}/labeled-pairs?limit=${historyLimit}&offset=${historyPage * historyLimit}${filterParam}`, {
+                headers: { 'Authorization': 'Bearer ' + getAuthToken() }
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                historyTotal = data.total;
+                renderHistoryList(data.pairs);
+                updateHistoryPagination();
+                document.getElementById('history-total').textContent = `${historyTotal} pairs`;
+
+                // Also check for pending linkage matches
+                checkPendingLinkageMatches();
+            }
+        } catch (error) {
+            console.error('Failed to load history:', error);
+        }
+    }
+
+    function renderHistoryList(pairs) {
+        const container = document.getElementById('history-list');
+        const emptyState = document.getElementById('history-empty');
+
+        if (!pairs || pairs.length === 0) {
+            container.innerHTML = '';
+            emptyState.classList.remove('hidden');
+            return;
+        }
+
+        emptyState.classList.add('hidden');
+
+        container.innerHTML = pairs.map(pair => {
+            const labelColors = {
+                'match': 'bg-green-100 text-green-800',
+                'non_match': 'bg-red-100 text-red-800',
+                'uncertain': 'bg-yellow-100 text-yellow-800'
+            };
+            const labelText = {
+                'match': 'Match',
+                'non_match': 'Non-Match',
+                'uncertain': 'Uncertain'
+            };
+
+            const leftName = getRecordDisplayName(pair.left_record);
+            const rightName = getRecordDisplayName(pair.right_record);
+
+            return `
+                <div class="px-6 py-4 hover:bg-gray-50 cursor-pointer" onclick="viewPairDetail(${pair.id})">
+                    <div class="flex items-center justify-between">
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-center space-x-2">
+                                <span class="text-sm font-medium text-gray-900 truncate">${leftName}</span>
+                                <svg class="h-4 w-4 text-gray-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                                </svg>
+                                <span class="text-sm font-medium text-gray-900 truncate">${rightName}</span>
+                            </div>
+                            <div class="mt-1 flex items-center space-x-3 text-xs text-gray-500">
+                                ${Object.entries(pair.comparison_vector || {}).slice(0, 3).map(([k, v]) =>
+                                    `<span>${k}: ${Math.round(v * 100)}%</span>`
+                                ).join('')}
+                            </div>
+                        </div>
+                        <div class="flex items-center space-x-3">
+                            <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${labelColors[pair.label] || 'bg-gray-100 text-gray-800'}">
+                                ${labelText[pair.label] || pair.label}
+                            </span>
+                            <span class="text-xs text-gray-400">
+                                ${new Date(pair.created_at).toLocaleDateString()}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    function getRecordDisplayName(record) {
+        if (!record) return 'Unknown';
+        // Try common name fields
+        const nameFields = ['name', 'full_name', 'first_name', 'company_name', 'title', 'email'];
+        for (const field of nameFields) {
+            if (record[field]) {
+                if (field === 'first_name' && record['last_name']) {
+                    return `${record[field]} ${record['last_name']}`;
+                }
+                return record[field];
+            }
+        }
+        // Fallback to first non-index field
+        const keys = Object.keys(record).filter(k => k !== '_idx' && k !== 'id');
+        return keys.length > 0 ? record[keys[0]] : 'Record';
+    }
+
+    function filterHistory(filter) {
+        // Update button styles
+        ['all', 'match', 'non_match', 'uncertain'].forEach(f => {
+            const btn = document.getElementById(`filter-${f}`);
+            if (f === filter) {
+                btn.classList.add('bg-gray-100', 'text-gray-700');
+                btn.classList.remove('text-gray-500');
+            } else {
+                btn.classList.remove('bg-gray-100', 'text-gray-700');
+                btn.classList.add('text-gray-500');
+            }
+        });
+
+        historyFilter = filter;
+        historyPage = 0;
+        loadLabeledPairsHistory();
+    }
+
+    function loadHistoryPage(direction) {
+        if (direction === 'prev' && historyPage > 0) {
+            historyPage--;
+        } else if (direction === 'next' && (historyPage + 1) * historyLimit < historyTotal) {
+            historyPage++;
+        }
+        loadLabeledPairsHistory();
+    }
+
+    function updateHistoryPagination() {
+        const prevBtn = document.getElementById('history-prev');
+        const nextBtn = document.getElementById('history-next');
+        const pageInfo = document.getElementById('history-page-info');
+
+        prevBtn.disabled = historyPage === 0;
+        nextBtn.disabled = (historyPage + 1) * historyLimit >= historyTotal;
+
+        const totalPages = Math.ceil(historyTotal / historyLimit);
+        pageInfo.textContent = `Page ${historyPage + 1} of ${totalPages || 1}`;
+    }
+
+    function viewPairDetail(pairId) {
+        // Could open a modal or expand the row to show full details
+        showToast('Pair detail view coming soon', 'info');
+    }
+
+    // Linkage Results Integration
+    async function checkPendingLinkageMatches() {
+        try {
+            const response = await fetch(`/api/labeling/projects/${projectId}/pending-linkage-matches`, {
+                headers: { 'Authorization': 'Bearer ' + getAuthToken() }
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                pendingLinkageMatches = data.pairs || [];
+
+                const banner = document.getElementById('linkage-results-banner');
+                if (pendingLinkageMatches.length > 0) {
+                    document.getElementById('linkage-match-count').textContent = pendingLinkageMatches.length;
+                    banner.classList.remove('hidden');
+                } else {
+                    banner.classList.add('hidden');
+                }
+            }
+        } catch (error) {
+            // Silently fail - linkage matches are optional
+        }
+    }
+
+    async function reviewLinkageMatches() {
+        if (pendingLinkageMatches.length === 0) {
+            showToast('No pending linkage matches to review', 'info');
+            return;
+        }
+
+        // Switch to labeling tab and use linkage_priority strategy
+        showTab('labeling');
+
+        // If session not started, start with linkage priority
+        if (!sessionId) {
+            try {
+                const response = await fetch(`/api/labeling/projects/${projectId}/start`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer ' + getAuthToken()
+                    },
+                    body: JSON.stringify({
+                        strategy: 'linkage_priority',
+                        target_labels: 100
+                    })
+                });
+
+                if (response.ok) {
+                    const session = await response.json();
+                    sessionId = session.id;
+                    currentStrategy = 'linkage_priority';
+
+                    document.getElementById('start-section').classList.add('hidden');
+                    document.getElementById('labeling-section').classList.remove('hidden');
+                    document.getElementById('session-controls').classList.remove('hidden');
+                    document.getElementById('tab-navigation').classList.remove('hidden');
+                    document.getElementById('target-count').textContent = session.target_labels;
+                    document.getElementById('current-strategy').textContent = 'Linkage Priority';
+                    document.getElementById('strategy-display').classList.remove('hidden');
+
+                    loadNextPairWithExplanation();
+                }
+            } catch (error) {
+                showToast('Failed to start review session', 'error');
+            }
+        } else {
+            // Session already active - just continue with current pair
+            loadNextPairWithExplanation();
         }
     }
 </script>

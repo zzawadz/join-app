@@ -351,3 +351,77 @@ def should_retrain(
         True if should retrain
     """
     return (total_labeled - last_retrain_count) >= retrain_interval
+
+
+def select_from_linkage_results(
+    db,  # SQLAlchemy session
+    project_id: int,
+    source_df: pd.DataFrame,
+    target_df: pd.DataFrame,
+    column_mappings: Dict[str, str],
+    comparison_config: Dict[str, Any],
+    labeled_pairs: Set[Tuple[int, int]]
+) -> Optional[PairSelectionResult]:
+    """
+    Select the next pair from linkage job results, prioritizing matches for confirmation.
+
+    This function queries the database for pairs classified as "match" from
+    the most recent completed linkage job and returns them for user confirmation.
+
+    Args:
+        db: SQLAlchemy database session
+        project_id: Project ID to query linkage results for
+        source_df: Source DataFrame
+        target_df: Target DataFrame
+        column_mappings: Column mappings configuration
+        comparison_config: Comparison methods configuration
+        labeled_pairs: Set of already labeled (left_idx, right_idx) pairs
+
+    Returns:
+        PairSelectionResult with explanation or None if no linkage matches available
+    """
+    # Import here to avoid circular imports
+    from app.db.models import LinkageJob, RecordPair, JobStatus
+
+    # Get the most recent completed linkage job
+    latest_job = db.query(LinkageJob).filter(
+        LinkageJob.project_id == project_id,
+        LinkageJob.status == JobStatus.COMPLETED
+    ).order_by(LinkageJob.completed_at.desc()).first()
+
+    if not latest_job:
+        return None
+
+    # Get matched pairs from linkage results that haven't been labeled yet
+    match_pairs = db.query(RecordPair).filter(
+        RecordPair.job_id == latest_job.id,
+        RecordPair.classification == "match"
+    ).order_by(RecordPair.match_score.desc()).all()
+
+    # Find the first unlabeled pair
+    for pair in match_pairs:
+        if (pair.left_record_idx, pair.right_record_idx) not in labeled_pairs:
+            # Compute comparison vector if not already stored
+            if pair.comparison_vector:
+                comparison_vector = pair.comparison_vector
+            else:
+                try:
+                    left_record = source_df.iloc[pair.left_record_idx].to_dict()
+                    right_record = target_df.iloc[pair.right_record_idx].to_dict()
+                    comparison_vector = compare_records(
+                        left_record, right_record,
+                        column_mappings, comparison_config
+                    )
+                except Exception:
+                    continue
+
+            return PairSelectionResult(
+                left_idx=pair.left_record_idx,
+                right_idx=pair.right_record_idx,
+                comparison_vector=comparison_vector,
+                selection_reason="linkage_result_confirmation",
+                model_probability=pair.match_score,
+                candidates_evaluated=1
+            )
+
+    return None
