@@ -112,6 +112,7 @@ def create_demo_project(
                 file_path=source_path,
                 row_count=len(df),
                 column_names=list(df.columns),
+                sample_data=df.head(5).to_dict(orient='records'),
                 role="dedupe"
             )
             db.add(dataset)
@@ -138,6 +139,7 @@ def create_demo_project(
                 file_path=source_path,
                 row_count=len(source_df),
                 column_names=list(source_df.columns),
+                sample_data=source_df.head(5).to_dict(orient='records'),
                 role="source"
             )
             target_dataset = Dataset(
@@ -147,6 +149,7 @@ def create_demo_project(
                 file_path=target_path,
                 row_count=len(target_df),
                 column_names=list(target_df.columns),
+                sample_data=target_df.head(5).to_dict(orient='records'),
                 role="target"
             )
             db.add(source_dataset)

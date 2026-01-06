@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./storage/app.db"
 
     # Storage
+    storage_path: str = "storage"
     upload_dir: str = "storage/uploads"
     models_dir: str = "storage/models"
     max_upload_size_mb: int = 100
