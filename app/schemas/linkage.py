@@ -7,6 +7,9 @@ from app.db.models import JobStatus
 class LinkageJobCreate(BaseModel):
     model_id: Optional[int] = None
     job_type: Optional[str] = "full_linkage"
+    upper_threshold: float = 0.8  # Score >= this = "match"
+    lower_threshold: float = 0.3  # Score <= this = "non_match"
+    # Scores between thresholds = "review"
 
 
 class LinkageJobResponse(BaseModel):
@@ -15,9 +18,12 @@ class LinkageJobResponse(BaseModel):
     model_id: Optional[int] = None
     status: JobStatus
     job_type: Optional[str] = None
+    upper_threshold: float = 0.8
+    lower_threshold: float = 0.3
     total_pairs: int = 0
     processed_pairs: int = 0
     matched_pairs: int = 0
+    review_pairs: int = 0
     created_at: datetime
 
     class Config:

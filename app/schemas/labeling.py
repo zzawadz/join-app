@@ -76,7 +76,7 @@ class PairExplanation(BaseModel):
 
 class LabelingPairWithExplanation(BaseModel):
     """Labeling pair response with explanation for selection."""
-    session_id: int
+    session_id: Optional[int] = None  # Optional for session-less endpoints
     left_record: Dict[str, Any]
     right_record: Dict[str, Any]
     comparison_vector: Dict[str, float]

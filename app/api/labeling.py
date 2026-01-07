@@ -324,10 +324,15 @@ def get_labeled_pairs(
     limit: int = 100,
     offset: int = 0,
     label: Optional[str] = None,
+    include_model_scores: bool = True,
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
-    """Get all labeled pairs for a project, optionally filtered by label."""
+    """Get all labeled pairs for a project, optionally filtered by label.
+
+    When include_model_scores=True (default), includes the current active model's
+    prediction for each pair.
+    """
     project = get_project_or_404(project_id, current_user, db)
 
     query = db.query(LabeledPair).filter(
@@ -357,8 +362,52 @@ def get_labeled_pairs(
 
     total = count_query.count()
 
+    # Optionally compute model scores for each pair
+    pairs_data = []
+    classifier = None
+
+    if include_model_scores:
+        active_model = db.query(LinkageModel).filter(
+            LinkageModel.project_id == project_id,
+            LinkageModel.is_active == True
+        ).first()
+
+        if active_model and active_model.model_path:
+            try:
+                from app.core.linkage.ml_classifier import load_classifier
+                classifier = load_classifier(active_model.model_path)
+            except Exception:
+                classifier = None
+
+    for pair in pairs:
+        pair_dict = {
+            "id": pair.id,
+            "session_id": pair.session_id,
+            "project_id": pair.project_id,
+            "labeled_by_id": pair.labeled_by_id,
+            "left_record": pair.left_record,
+            "right_record": pair.right_record,
+            "comparison_vector": pair.comparison_vector,
+            "label": pair.label.value if pair.label else None,
+            "confidence": pair.confidence,
+            "labeling_time_ms": pair.labeling_time_ms,
+            "created_at": pair.created_at,
+            "model_score": None
+        }
+
+        # Compute model score if classifier is available and we have a comparison vector
+        if classifier and pair.comparison_vector:
+            try:
+                X = [list(pair.comparison_vector.values())]
+                score = classifier.predict_proba(X)[0]
+                pair_dict["model_score"] = float(score)
+            except Exception:
+                pass
+
+        pairs_data.append(pair_dict)
+
     return {
-        "pairs": pairs,
+        "pairs": pairs_data,
         "total": total,
         "limit": limit,
         "offset": offset
@@ -637,6 +686,220 @@ def get_pending_linkage_matches(
         "pairs": pending_pairs,
         "job_id": latest_job.id,
         "total": len(pending_pairs)
+    }
+
+
+@router.get("/projects/{project_id}/next-pair", response_model=LabelingPairWithExplanation)
+def get_next_pair_for_project(
+    project_id: int,
+    strategy: str = "linkage_priority",
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get the next pair to label for a project without requiring an explicit session.
+    Strategy can be changed on-the-fly via the query parameter.
+    """
+    project = get_project_or_404(project_id, current_user, db)
+
+    # Load datasets
+    import pandas as pd
+    datasets = {d.role: d for d in project.datasets}
+
+    if project.linkage_type.value == "deduplication":
+        df = pd.read_csv(datasets["dedupe"].file_path)
+        source_df = target_df = df
+    else:
+        source_df = pd.read_csv(datasets["source"].file_path)
+        target_df = pd.read_csv(datasets["target"].file_path)
+
+    # Get already labeled indices to exclude
+    labeled = db.query(LabeledPair).filter(
+        LabeledPair.project_id == project.id
+    ).all()
+    labeled_pairs = set((lp.left_record["_idx"], lp.right_record["_idx"])
+                       for lp in labeled if "_idx" in lp.left_record)
+
+    # Get active model for uncertainty sampling
+    active_model = db.query(LinkageModel).filter(
+        LinkageModel.project_id == project.id,
+        LinkageModel.is_active == True
+    ).first()
+
+    # For linkage_priority strategy, first check linkage results
+    result = None
+    if strategy == "linkage_priority":
+        result = select_from_linkage_results(
+            db, project.id, source_df, target_df,
+            project.column_mappings or {},
+            project.comparison_config or {},
+            labeled_pairs
+        )
+
+    # Fall back to regular selection if no linkage results or other strategy
+    if result is None:
+        result = select_informative_pair_with_explanation(
+            source_df, target_df,
+            project.column_mappings or {},
+            project.comparison_config or {},
+            project.blocking_config or {},
+            labeled_pairs,
+            active_model,
+            strategy=strategy if strategy != "linkage_priority" else "uncertainty",
+            is_dedup=(project.linkage_type.value == "deduplication")
+        )
+
+    if result is None:
+        raise HTTPException(status_code=204, detail="No more pairs to label")
+
+    left_record = source_df.iloc[result.left_idx].to_dict()
+    left_record["_idx"] = int(result.left_idx)
+
+    right_record = target_df.iloc[result.right_idx].to_dict()
+    right_record["_idx"] = int(result.right_idx)
+
+    explanation = PairExplanation(
+        selection_reason=result.selection_reason,
+        uncertainty_score=result.uncertainty_score,
+        model_probability=result.model_probability,
+        candidates_evaluated=result.candidates_evaluated
+    )
+
+    return {
+        "session_id": None,  # No session required
+        "left_record": left_record,
+        "right_record": right_record,
+        "comparison_vector": result.comparison_vector,
+        "column_mappings": project.column_mappings or {},
+        "explanation": explanation
+    }
+
+
+@router.post("/projects/{project_id}/label")
+def submit_label_for_project(
+    project_id: int,
+    submission: LabelSubmission,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Submit a label for a pair without requiring an explicit session.
+    A session is created automatically if needed (transparent to user).
+    """
+    project = get_project_or_404(project_id, current_user, db)
+
+    # Get or create a session transparently
+    session = db.query(LabelingSession).filter(
+        LabelingSession.project_id == project_id,
+        LabelingSession.user_id == current_user.id,
+        LabelingSession.status == "active"
+    ).first()
+
+    if not session:
+        session = LabelingSession(
+            project_id=project_id,
+            user_id=current_user.id,
+            strategy="uncertainty",  # Default, user can switch on-the-fly
+            target_labels=None,  # No target, continues indefinitely
+            started_at=datetime.utcnow(),
+            total_labeling_time_ms=0
+        )
+        db.add(session)
+        db.flush()
+
+    labeled_pair = LabeledPair(
+        session_id=session.id,
+        project_id=project_id,
+        labeled_by_id=current_user.id,
+        left_record=submission.left_record,
+        right_record=submission.right_record,
+        comparison_vector=submission.comparison_vector,
+        label=submission.label,
+        confidence=submission.confidence,
+        labeling_time_ms=submission.labeling_time_ms
+    )
+
+    db.add(labeled_pair)
+
+    session.total_labeled += 1
+    if submission.labeling_time_ms:
+        session.total_labeling_time_ms = (session.total_labeling_time_ms or 0) + submission.labeling_time_ms
+
+    db.commit()
+
+    # Get label distribution for the project (not just session)
+    labels = db.query(LabeledPair.label, func.count(LabeledPair.id)).filter(
+        LabeledPair.project_id == project_id
+    ).group_by(LabeledPair.label).all()
+
+    label_counts = {label.value: count for label, count in labels}
+    total_labeled = sum(label_counts.values())
+
+    return {
+        "message": "Label saved",
+        "total_labeled": total_labeled,
+        "matches": label_counts.get("match", 0),
+        "non_matches": label_counts.get("non_match", 0),
+        "uncertain": label_counts.get("uncertain", 0)
+    }
+
+
+@router.get("/projects/{project_id}/progress")
+def get_project_labeling_progress(
+    project_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get overall labeling progress for a project (not session-specific).
+    Shows total labeled pairs and candidate pair count.
+    """
+    project = get_project_or_404(project_id, current_user, db)
+
+    # Get label distribution for the project
+    labels = db.query(LabeledPair.label, func.count(LabeledPair.id)).filter(
+        LabeledPair.project_id == project_id
+    ).group_by(LabeledPair.label).all()
+
+    label_counts = {label.value: count for label, count in labels}
+    total_labeled = sum(label_counts.values())
+
+    # Count total candidates
+    import pandas as pd
+    datasets = {d.role: d for d in project.datasets}
+
+    try:
+        if project.linkage_type.value == "deduplication":
+            df = pd.read_csv(datasets["dedupe"].file_path)
+            source_df = target_df = df
+        else:
+            source_df = pd.read_csv(datasets["source"].file_path)
+            target_df = pd.read_csv(datasets["target"].file_path)
+
+        labeled = db.query(LabeledPair).filter(
+            LabeledPair.project_id == project.id
+        ).all()
+        labeled_pairs = set((lp.left_record["_idx"], lp.right_record["_idx"])
+                           for lp in labeled if "_idx" in lp.left_record)
+
+        total_candidates, remaining_candidates = count_candidate_pairs(
+            source_df, target_df,
+            project.blocking_config or {},
+            labeled_pairs,
+            is_dedup=(project.linkage_type.value == "deduplication")
+        )
+    except Exception:
+        total_candidates = 0
+        remaining_candidates = 0
+
+    return {
+        "project_id": project_id,
+        "total_labeled": total_labeled,
+        "total_candidates": total_candidates,
+        "remaining_candidates": remaining_candidates,
+        "matches": label_counts.get("match", 0),
+        "non_matches": label_counts.get("non_match", 0),
+        "uncertain": label_counts.get("uncertain", 0)
     }
 
 

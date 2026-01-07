@@ -259,6 +259,63 @@ def activate_model(
     return {"message": "Model activated", "model_id": model_id}
 
 
+@router.post("/projects/{project_id}/retrain")
+def retrain_project_model(
+    project_id: int,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Retrain the active model for a project, or create a new one if none exists.
+    This is a session-less endpoint for use with the simplified labeling UI.
+    """
+    project = get_project_or_404(project_id, current_user, db)
+
+    # Check for labeled data
+    labeled_count = db.query(LabeledPair).filter(
+        LabeledPair.project_id == project_id
+    ).count()
+
+    if labeled_count < 10:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Need at least 10 labeled pairs for training. Currently have {labeled_count}."
+        )
+
+    # Get or create active model
+    active_model = db.query(LinkageModel).filter(
+        LinkageModel.project_id == project_id,
+        LinkageModel.is_active == True
+    ).first()
+
+    if not active_model:
+        # Create a new model with default settings
+        active_model = LinkageModel(
+            project_id=project_id,
+            name=f"Model_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}",
+            model_type="logistic_regression",
+            is_active=True,
+            parameters={}
+        )
+        db.add(active_model)
+        db.commit()
+        db.refresh(active_model)
+
+    # Update training pairs count
+    active_model.training_pairs_count = labeled_count
+    db.commit()
+
+    # Start training in background
+    background_tasks.add_task(train_model_task, active_model.id, settings.database_url)
+
+    return {
+        "message": "Model retraining started",
+        "model_id": active_model.id,
+        "training_pairs": labeled_count
+    }
+
+
 @router.delete("/{model_id}")
 def delete_model(
     model_id: int,

@@ -21,23 +21,29 @@
                 <h1 class="mt-2 text-2xl font-bold text-gray-900">Active Learning</h1>
                 <p class="mt-1 text-sm text-gray-500">Label record pairs to train the matching model</p>
             </div>
-            <div id="session-controls" class="hidden">
-                <button onclick="retrainModel()" class="inline-flex items-center rounded-md bg-green-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-green-500 mr-2">
+            <div id="session-controls" class="flex items-center space-x-3">
+                <!-- Strategy Selector (always visible) -->
+                <div class="flex items-center space-x-2">
+                    <label for="strategy-selector" class="text-sm text-gray-600">Strategy:</label>
+                    <select id="strategy-selector" onchange="changeStrategy(this.value)" class="rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm px-2 py-1.5 border">
+                        <option value="linkage_priority">Linkage Results First</option>
+                        <option value="uncertainty">Uncertainty Sampling</option>
+                        <option value="random">Random</option>
+                    </select>
+                </div>
+                <button onclick="retrainModel()" class="inline-flex items-center rounded-md bg-green-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-green-500">
                     <svg class="h-4 w-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                     </svg>
                     Retrain Model
-                </button>
-                <button onclick="completeSession()" class="inline-flex items-center rounded-md bg-gray-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-gray-500">
-                    Complete Session
                 </button>
             </div>
         </div>
     </header>
 
     <main class="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8 mt-8">
-        <!-- Tab Navigation -->
-        <div id="tab-navigation" class="mb-4 hidden">
+        <!-- Tab Navigation (always visible) -->
+        <div id="tab-navigation" class="mb-4">
             <nav class="flex space-x-4" aria-label="Tabs">
                 <button onclick="showTab('labeling')" id="tab-labeling" class="px-3 py-2 font-medium text-sm rounded-md bg-indigo-100 text-indigo-700">
                     Labeling
@@ -61,7 +67,9 @@
         <!-- Progress Bar (Enhanced) -->
         <div id="progress-section" class="mb-6 bg-white rounded-lg shadow p-4">
             <div class="flex justify-between text-sm text-gray-600 mb-2">
-                <span>Progress: <span id="labeled-count">0</span> / <span id="target-count">100</span> pairs labeled</span>
+                <span>
+                    <span id="labeled-count">0</span> labeled / <span id="total-candidates">-</span> total candidates
+                </span>
                 <span id="progress-percent">0%</span>
             </div>
             <div class="w-full bg-gray-200 rounded-full h-2.5">
@@ -85,40 +93,11 @@
                 <span id="timing-stats" class="hidden">
                     <span id="total-time">0m 0s</span> total | ~<span id="avg-time">0</span>s per pair
                 </span>
-                <span id="strategy-display" class="hidden">
-                    Strategy: <span id="current-strategy" class="font-medium">-</span>
-                </span>
             </div>
         </div>
 
-        <!-- Start Session (shown initially) -->
-        <div id="start-section" class="bg-white rounded-lg shadow p-8 text-center">
-            <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
-            </svg>
-            <h3 class="mt-4 text-lg font-medium text-gray-900">Start Labeling Session</h3>
-            <p class="mt-2 text-sm text-gray-500">You'll be shown pairs of records to classify as matches or non-matches.</p>
-            <div class="mt-6 flex justify-center space-x-4">
-                <div>
-                    <label for="strategy" class="block text-sm font-medium text-gray-700">Strategy</label>
-                    <select id="strategy" class="mt-1 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm px-3 py-2 border">
-                        <option value="linkage_priority">Linkage Results First</option>
-                        <option value="uncertainty">Uncertainty Sampling</option>
-                        <option value="random">Random</option>
-                    </select>
-                </div>
-                <div>
-                    <label for="target-labels" class="block text-sm font-medium text-gray-700">Target Labels</label>
-                    <input type="number" id="target-labels" value="100" min="10" max="1000" class="mt-1 w-24 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm px-3 py-2 border">
-                </div>
-            </div>
-            <button onclick="startSession()" class="mt-6 inline-flex items-center rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500">
-                Start Labeling
-            </button>
-        </div>
-
-        <!-- Labeling Card (hidden initially) -->
-        <div id="labeling-section" class="hidden">
+        <!-- Labeling Card (shown immediately - no start section needed) -->
+        <div id="labeling-section">
             <!-- Record Pair Card -->
             <div class="bg-white rounded-lg shadow overflow-hidden">
                 <div class="grid grid-cols-2 divide-x divide-gray-200">
@@ -444,15 +423,33 @@
 {% block scripts %}
 <script>
     const projectId = {{ project_id }};
-    let sessionId = null;
     let currentPair = null;
     let currentExplanation = null;
     let labelStartTime = null;
-    let currentStrategy = null;
+    let currentStrategy = 'linkage_priority';
     let configData = null;
+    let totalCandidates = null;
 
     if (!isAuthenticated()) {
         window.location.href = '/login';
+    }
+
+    // Auto-initialize on page load
+    document.addEventListener('DOMContentLoaded', function() {
+        initializeLabeling();
+    });
+
+    async function initializeLabeling() {
+        // Load progress and first pair immediately
+        await loadProjectProgress();
+        await loadNextPairWithExplanation();
+    }
+
+    // Strategy change handler
+    function changeStrategy(newStrategy) {
+        currentStrategy = newStrategy;
+        // Load next pair with new strategy
+        loadNextPairWithExplanation();
     }
 
     // Keyboard shortcuts
@@ -471,7 +468,7 @@
                 submitLabel('uncertain');
                 break;
             case 's':
-                skipPair();
+                loadNextPairWithExplanation(); // Skip = load next
                 break;
         }
     });
@@ -506,56 +503,44 @@
         }
     }
 
-    async function startSession() {
-        const strategy = document.getElementById('strategy').value;
-        const targetLabels = document.getElementById('target-labels').value;
-
+    // Load project-level progress (total labeled vs total candidates)
+    async function loadProjectProgress() {
         try {
-            const response = await fetch(`/api/labeling/projects/${projectId}/start`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': 'Bearer ' + getAuthToken()
-                },
-                body: JSON.stringify({
-                    strategy: strategy,
-                    target_labels: parseInt(targetLabels)
-                })
+            const response = await fetch(`/api/labeling/projects/${projectId}/progress`, {
+                headers: { 'Authorization': 'Bearer ' + getAuthToken() }
             });
 
             if (response.ok) {
-                const session = await response.json();
-                sessionId = session.id;
-                currentStrategy = strategy;
+                const progress = await response.json();
+                totalCandidates = progress.total_candidates;
+                document.getElementById('labeled-count').textContent = progress.total_labeled;
+                document.getElementById('total-candidates').textContent = totalCandidates.toLocaleString();
+                document.getElementById('match-count').textContent = progress.matches;
+                document.getElementById('non-match-count').textContent = progress.non_matches;
+                document.getElementById('uncertain-count').textContent = progress.uncertain;
+                document.getElementById('candidate-count').textContent = progress.remaining_candidates.toLocaleString();
 
-                document.getElementById('start-section').classList.add('hidden');
-                document.getElementById('labeling-section').classList.remove('hidden');
-                document.getElementById('session-controls').classList.remove('hidden');
-                document.getElementById('tab-navigation').classList.remove('hidden');
-                document.getElementById('target-count').textContent = session.target_labels;
-                const strategyNames = {
-                    'linkage_priority': 'Linkage Results First',
-                    'uncertainty': 'Uncertainty Sampling',
-                    'random': 'Random'
-                };
-                document.getElementById('current-strategy').textContent = strategyNames[strategy] || strategy;
-                document.getElementById('strategy-display').classList.remove('hidden');
-
-                loadNextPairWithExplanation();
-            } else {
-                const data = await response.json();
-                showToast(data.detail || 'Failed to start session', 'error');
+                // Calculate progress percentage
+                if (totalCandidates > 0) {
+                    const percent = Math.min(100, Math.round((progress.total_labeled / totalCandidates) * 100));
+                    document.getElementById('progress-percent').textContent = percent + '%';
+                    document.getElementById('progress-bar').style.width = percent + '%';
+                }
             }
         } catch (error) {
-            showToast('An error occurred', 'error');
+            console.error('Failed to load progress:', error);
         }
     }
 
+    // Load next pair using session-less endpoint
     async function loadNextPairWithExplanation() {
         document.getElementById('loading-pair').classList.remove('hidden');
+        // Hide record card while loading
+        const recordCard = document.querySelector('#labeling-section > .bg-white.rounded-lg.shadow.overflow-hidden');
+        if (recordCard) recordCard.classList.add('hidden');
 
         try {
-            const response = await fetch(`/api/labeling/sessions/${sessionId}/next-with-explanation`, {
+            const response = await fetch(`/api/labeling/projects/${projectId}/next-pair?strategy=${currentStrategy}`, {
                 headers: { 'Authorization': 'Bearer ' + getAuthToken() }
             });
 
@@ -573,6 +558,11 @@
                 currentPair = data;
                 currentExplanation = data.explanation;
                 labelStartTime = Date.now();
+
+                // Show record card
+                if (recordCard) recordCard.classList.remove('hidden');
+                document.getElementById('no-pairs').classList.add('hidden');
+
                 renderPair(data);
                 renderExplanation(data.explanation);
             } else {
@@ -647,13 +637,14 @@
             }).join('');
     }
 
+    // Submit label using session-less endpoint
     async function submitLabel(label) {
-        if (!currentPair || !sessionId) return;
+        if (!currentPair) return;
 
         const labelingTime = Date.now() - labelStartTime;
 
         try {
-            const response = await fetch(`/api/labeling/sessions/${sessionId}/label`, {
+            const response = await fetch(`/api/labeling/projects/${projectId}/label`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -670,7 +661,7 @@
 
             if (response.ok) {
                 const data = await response.json();
-                updateProgress(data.total_labeled, data.target_labels);
+                updateProgress(data);
                 loadNextPairWithExplanation();
             } else {
                 showToast('Failed to save label', 'error');
@@ -680,61 +671,25 @@
         }
     }
 
-    async function skipPair() {
-        if (!sessionId) return;
+    function updateProgress(data) {
+        document.getElementById('labeled-count').textContent = data.total_labeled;
+        document.getElementById('match-count').textContent = data.matches;
+        document.getElementById('non-match-count').textContent = data.non_matches;
+        document.getElementById('uncertain-count').textContent = data.uncertain;
 
-        await fetch(`/api/labeling/sessions/${sessionId}/skip`, {
-            method: 'POST',
-            headers: { 'Authorization': 'Bearer ' + getAuthToken() }
-        });
-
-        loadNextPairWithExplanation();
-    }
-
-    function updateProgress(labeled, target) {
-        document.getElementById('labeled-count').textContent = labeled;
-        const percent = Math.round((labeled / target) * 100);
-        document.getElementById('progress-percent').textContent = percent + '%';
-        document.getElementById('progress-bar').style.width = percent + '%';
-
-        loadDetailedProgress();
-    }
-
-    async function loadDetailedProgress() {
-        if (!sessionId) return;
-
-        try {
-            const response = await fetch(`/api/labeling/sessions/${sessionId}/detailed-progress`, {
-                headers: { 'Authorization': 'Bearer ' + getAuthToken() }
-            });
-
-            if (response.ok) {
-                const progress = await response.json();
-                document.getElementById('match-count').textContent = progress.matches;
-                document.getElementById('non-match-count').textContent = progress.non_matches;
-                document.getElementById('uncertain-count').textContent = progress.uncertain;
-                document.getElementById('candidate-count').textContent = progress.estimated_remaining;
-
-                // Update timing stats
-                if (progress.total_time_ms > 0) {
-                    const totalSecs = Math.floor(progress.total_time_ms / 1000);
-                    const mins = Math.floor(totalSecs / 60);
-                    const secs = totalSecs % 60;
-                    document.getElementById('total-time').textContent = `${mins}m ${secs}s`;
-                    document.getElementById('avg-time').textContent = (progress.avg_time_per_pair_ms / 1000).toFixed(1);
-                    document.getElementById('timing-stats').classList.remove('hidden');
-                }
-            }
-        } catch (error) {
-            // Silently fail
+        // Update progress percentage based on total candidates
+        if (totalCandidates && totalCandidates > 0) {
+            const percent = Math.min(100, Math.round((data.total_labeled / totalCandidates) * 100));
+            document.getElementById('progress-percent').textContent = percent + '%';
+            document.getElementById('progress-bar').style.width = percent + '%';
+            document.getElementById('candidate-count').textContent = (totalCandidates - data.total_labeled).toLocaleString();
         }
     }
 
+    // Retrain model using project-level endpoint
     async function retrainModel() {
-        if (!sessionId) return;
-
         try {
-            const response = await fetch(`/api/labeling/sessions/${sessionId}/retrain`, {
+            const response = await fetch(`/api/models/projects/${projectId}/retrain`, {
                 method: 'POST',
                 headers: { 'Authorization': 'Bearer ' + getAuthToken() }
             });
@@ -747,21 +702,6 @@
                 const data = await response.json();
                 showToast(data.detail || 'Failed to start retraining', 'error');
             }
-        } catch (error) {
-            showToast('An error occurred', 'error');
-        }
-    }
-
-    async function completeSession() {
-        if (!sessionId) return;
-
-        try {
-            await fetch(`/api/labeling/sessions/${sessionId}/complete`, {
-                method: 'POST',
-                headers: { 'Authorization': 'Bearer ' + getAuthToken() }
-            });
-
-            window.location.href = `/projects/${projectId}`;
         } catch (error) {
             showToast('An error occurred', 'error');
         }
@@ -1138,6 +1078,19 @@
             const leftName = getRecordDisplayName(pair.left_record);
             const rightName = getRecordDisplayName(pair.right_record);
 
+            // Model score badge (computed on-the-fly by API)
+            let modelScoreBadge = '';
+            if (pair.model_score !== undefined && pair.model_score !== null) {
+                const scorePercent = Math.round(pair.model_score * 100);
+                let scoreColorClass = 'bg-gray-100 text-gray-700';
+                if (scorePercent >= 70) scoreColorClass = 'bg-green-100 text-green-700';
+                else if (scorePercent >= 40) scoreColorClass = 'bg-yellow-100 text-yellow-700';
+                else scoreColorClass = 'bg-red-100 text-red-700';
+                modelScoreBadge = `<span class="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium ${scoreColorClass}">
+                    Model: ${scorePercent}%
+                </span>`;
+            }
+
             return `
                 <div class="px-6 py-4 hover:bg-gray-50 cursor-pointer" onclick="viewPairDetail(${pair.id})">
                     <div class="flex items-center justify-between">
@@ -1156,6 +1109,7 @@
                             </div>
                         </div>
                         <div class="flex items-center space-x-3">
+                            ${modelScoreBadge}
                             <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${labelColors[pair.label] || 'bg-gray-100 text-gray-800'}">
                                 ${labelText[pair.label] || pair.label}
                             </span>
@@ -1263,43 +1217,10 @@
         // Switch to labeling tab and use linkage_priority strategy
         showTab('labeling');
 
-        // If session not started, start with linkage priority
-        if (!sessionId) {
-            try {
-                const response = await fetch(`/api/labeling/projects/${projectId}/start`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': 'Bearer ' + getAuthToken()
-                    },
-                    body: JSON.stringify({
-                        strategy: 'linkage_priority',
-                        target_labels: 100
-                    })
-                });
-
-                if (response.ok) {
-                    const session = await response.json();
-                    sessionId = session.id;
-                    currentStrategy = 'linkage_priority';
-
-                    document.getElementById('start-section').classList.add('hidden');
-                    document.getElementById('labeling-section').classList.remove('hidden');
-                    document.getElementById('session-controls').classList.remove('hidden');
-                    document.getElementById('tab-navigation').classList.remove('hidden');
-                    document.getElementById('target-count').textContent = session.target_labels;
-                    document.getElementById('current-strategy').textContent = 'Linkage Priority';
-                    document.getElementById('strategy-display').classList.remove('hidden');
-
-                    loadNextPairWithExplanation();
-                }
-            } catch (error) {
-                showToast('Failed to start review session', 'error');
-            }
-        } else {
-            // Session already active - just continue with current pair
-            loadNextPairWithExplanation();
-        }
+        // Set strategy to linkage_priority and load next pair
+        currentStrategy = 'linkage_priority';
+        document.getElementById('strategy-selector').value = 'linkage_priority';
+        loadNextPairWithExplanation();
     }
 </script>
 {% endblock %}

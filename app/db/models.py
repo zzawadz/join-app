@@ -169,10 +169,16 @@ class LinkageJob(Base):
     status = Column(Enum(JobStatus), default=JobStatus.PENDING)
     job_type = Column(String(50))  # "full_linkage", "sample", "evaluation"
 
+    # Classification thresholds (user-configurable)
+    upper_threshold = Column(Float, default=0.8)  # Score >= this = "match"
+    lower_threshold = Column(Float, default=0.3)  # Score <= this = "non_match"
+    # Scores between thresholds = "review"
+
     # Progress tracking
     total_pairs = Column(Integer, default=0)
     processed_pairs = Column(Integer, default=0)
     matched_pairs = Column(Integer, default=0)
+    review_pairs = Column(Integer, default=0)  # Pairs requiring manual review
 
     # Results
     results_path = Column(String(512))

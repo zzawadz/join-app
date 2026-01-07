@@ -95,17 +95,30 @@ def run_linkage_job_task(job_id: int, db_url: str):
                 else:
                     model = load_classifier(model_record.model_path)
 
-        # Store results
+        # Get user-configured thresholds
+        upper_threshold = job.upper_threshold or 0.8
+        lower_threshold = job.lower_threshold or 0.3
+
+        # Store results with three-category classification
         matched = 0
+        review = 0
         for cv in comparison_vectors:
             if model:
                 score = model.predict_proba([list(cv["vector"].values())])[0]
-                classification = "match" if score > 0.5 else "non_match"
             else:
-                # Simple threshold without model
+                # Simple average score without model
                 avg_score = sum(cv["vector"].values()) / len(cv["vector"]) if cv["vector"] else 0
                 score = avg_score
-                classification = "match" if avg_score > 0.8 else "non_match"
+
+            # Three-category classification using user-defined thresholds
+            if score >= upper_threshold:
+                classification = "match"
+                matched += 1
+            elif score <= lower_threshold:
+                classification = "non_match"
+            else:
+                classification = "review"
+                review += 1
 
             pair = RecordPair(
                 job_id=job_id,
@@ -117,11 +130,9 @@ def run_linkage_job_task(job_id: int, db_url: str):
             )
             db.add(pair)
 
-            if classification == "match":
-                matched += 1
-
         job.processed_pairs = len(pairs)
         job.matched_pairs = matched
+        job.review_pairs = review
         job.status = JobStatus.COMPLETED
         job.completed_at = datetime.utcnow()
         db.commit()
@@ -145,11 +156,20 @@ def start_linkage_job(
     """Start a new linkage job."""
     project = get_project_or_404(project_id, current_user, db)
 
+    # Validate thresholds
+    if job_data.lower_threshold >= job_data.upper_threshold:
+        raise HTTPException(
+            status_code=400,
+            detail="Lower threshold must be less than upper threshold"
+        )
+
     # Create job record
     job = LinkageJob(
         project_id=project_id,
         model_id=job_data.model_id,
         job_type=job_data.job_type or "full_linkage",
+        upper_threshold=job_data.upper_threshold,
+        lower_threshold=job_data.lower_threshold,
         status=JobStatus.PENDING
     )
 
