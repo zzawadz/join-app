@@ -207,7 +207,7 @@ def select_informative_pair_with_explanation(
     model: Any,
     strategy: str = "uncertainty",
     is_dedup: bool = False,
-    sample_size: int = 1000
+    sample_size: int = 4000
 ) -> Optional[PairSelectionResult]:
     """
     Select the most informative pair for labeling with explanation.
