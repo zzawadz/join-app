@@ -531,6 +531,15 @@ def get_next_pair_with_explanation(
         LinkageModel.is_active == True
     ).first()
 
+    # Load the actual classifier if model exists
+    classifier = None
+    if active_model and active_model.model_path:
+        try:
+            from app.core.linkage.ml_classifier import load_classifier
+            classifier = load_classifier(active_model.model_path)
+        except Exception:
+            classifier = None
+
     # For linkage_priority strategy, first check linkage results
     result = None
     if session.strategy == "linkage_priority":
@@ -549,7 +558,7 @@ def get_next_pair_with_explanation(
             project.comparison_config or {},
             project.blocking_config or {},
             labeled_pairs,
-            active_model,
+            classifier,  # Pass the loaded classifier, not the DB model
             strategy=session.strategy if session.strategy != "linkage_priority" else "uncertainty",
             is_dedup=(project.linkage_type.value == "deduplication")
         )
@@ -726,6 +735,15 @@ def get_next_pair_for_project(
         LinkageModel.is_active == True
     ).first()
 
+    # Load the actual classifier if model exists
+    classifier = None
+    if active_model and active_model.model_path:
+        try:
+            from app.core.linkage.ml_classifier import load_classifier
+            classifier = load_classifier(active_model.model_path)
+        except Exception:
+            classifier = None
+
     # For linkage_priority strategy, first check linkage results
     result = None
     if strategy == "linkage_priority":
@@ -744,7 +762,7 @@ def get_next_pair_for_project(
             project.comparison_config or {},
             project.blocking_config or {},
             labeled_pairs,
-            active_model,
+            classifier,  # Pass the loaded classifier, not the DB model
             strategy=strategy if strategy != "linkage_priority" else "uncertainty",
             is_dedup=(project.linkage_type.value == "deduplication")
         )
@@ -959,13 +977,22 @@ def get_next_pair_linkage_priority(
             LinkageModel.is_active == True
         ).first()
 
+        # Load the actual classifier if model exists
+        classifier = None
+        if active_model and active_model.model_path:
+            try:
+                from app.core.linkage.ml_classifier import load_classifier
+                classifier = load_classifier(active_model.model_path)
+            except Exception:
+                classifier = None
+
         result = select_informative_pair_with_explanation(
             source_df, target_df,
             project.column_mappings or {},
             project.comparison_config or {},
             project.blocking_config or {},
             labeled_pairs,
-            active_model,
+            classifier,  # Pass the loaded classifier, not the DB model
             strategy=session.strategy if session.strategy != "linkage_priority" else "uncertainty",
             is_dedup=(project.linkage_type.value == "deduplication")
         )

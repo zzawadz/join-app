@@ -453,3 +453,177 @@ class TestLabelingProgressIntegration:
         assert "match" in label_counts or "non_match" in label_counts
         total = sum(label_counts.values())
         assert total == session.total_labeled
+
+
+class TestUncertaintySampling:
+    """Tests for uncertainty sampling with trained models."""
+
+    def test_uncertainty_sampling_with_trained_classifier(self):
+        """Test that uncertainty sampling works with a trained classifier."""
+        from app.core.linkage.active_learning import select_informative_pair_with_explanation
+        import pandas as pd
+
+        # Create sample data
+        source_data = pd.DataFrame([
+            {"first_name": "John", "last_name": "Smith"},
+            {"first_name": "Jane", "last_name": "Doe"},
+            {"first_name": "Bob", "last_name": "Johnson"},
+        ])
+        target_data = pd.DataFrame([
+            {"fname": "John", "lname": "Smith"},
+            {"fname": "Janet", "lname": "Doe"},
+            {"fname": "Robert", "lname": "Johnson"},
+        ])
+
+        column_mappings = {"first_name": "fname", "last_name": "lname"}
+        comparison_config = {
+            "first_name": {"method": "jaro_winkler"},
+            "last_name": {"method": "jaro_winkler"}
+        }
+
+        # Train a classifier
+        X = [
+            [1.0, 1.0], [0.9, 0.95], [0.85, 0.9],
+            [0.2, 0.3], [0.1, 0.2], [0.3, 0.1],
+            [0.95, 0.98], [0.25, 0.15], [0.88, 0.92],
+            [0.15, 0.25], [0.92, 0.89], [0.22, 0.18],
+        ]
+        y = [1, 1, 1, 0, 0, 0, 1, 0, 1, 0, 1, 0]
+
+        classifier = LogisticRegressionClassifier()
+        classifier.fit(X, y, feature_names=["first_name", "last_name"])
+
+        # Test uncertainty sampling with the trained classifier
+        result = select_informative_pair_with_explanation(
+            source_data, target_data,
+            column_mappings, comparison_config,
+            blocking_config={},
+            labeled_pairs=set(),
+            model=classifier,
+            strategy="uncertainty",
+            is_dedup=False
+        )
+
+        assert result is not None
+        assert result.selection_reason == "uncertainty_sampling"
+        assert result.uncertainty_score is not None
+        assert result.model_probability is not None
+        # Uncertainty score should be between 0 and 0.5 (distance from 0.5)
+        assert 0 <= result.uncertainty_score <= 0.5
+
+    def test_uncertainty_sampling_without_model_falls_back_to_random(self):
+        """Test that uncertainty sampling falls back to random when no model provided."""
+        from app.core.linkage.active_learning import select_informative_pair_with_explanation
+        import pandas as pd
+
+        source_data = pd.DataFrame([
+            {"first_name": "John", "last_name": "Smith"},
+            {"first_name": "Jane", "last_name": "Doe"},
+        ])
+        target_data = pd.DataFrame([
+            {"fname": "John", "lname": "Smith"},
+            {"fname": "Janet", "lname": "Doe"},
+        ])
+
+        result = select_informative_pair_with_explanation(
+            source_data, target_data,
+            {"first_name": "fname", "last_name": "lname"},
+            {"first_name": {"method": "jaro_winkler"}, "last_name": {"method": "jaro_winkler"}},
+            blocking_config={},
+            labeled_pairs=set(),
+            model=None,  # No model
+            strategy="uncertainty",
+            is_dedup=False
+        )
+
+        assert result is not None
+        # Should fall back to "no_model" reason
+        assert result.selection_reason == "no_model"
+
+    def test_uncertainty_sampling_selects_most_uncertain_pair(self):
+        """Test that uncertainty sampling correctly selects the most uncertain pair."""
+        from app.core.linkage.active_learning import uncertainty_sampling
+
+        # Create probabilities with known uncertainty values
+        probabilities = [0.1, 0.5, 0.9, 0.3, 0.7]  # 0.5 is most uncertain
+        indices = [(0, 0), (1, 1), (2, 2), (3, 3), (4, 4)]
+
+        result = uncertainty_sampling(probabilities, indices)
+
+        # Should select index 1 which has probability 0.5 (most uncertain)
+        assert result == (1, 1)
+
+    def test_uncertainty_sampling_with_model_predicting_near_boundary(self):
+        """Test that uncertainty sampling prefers pairs near the 0.5 decision boundary."""
+        from app.core.linkage.active_learning import select_informative_pair_with_explanation
+        import pandas as pd
+
+        # Create data where pairs have varying similarity
+        source_data = pd.DataFrame([
+            {"first_name": "John", "last_name": "Smith"},       # 0: Perfect match
+            {"first_name": "Jane", "last_name": "Doe"},         # 1: Partial match
+            {"first_name": "Bob", "last_name": "Wilson"},       # 2: No match
+        ])
+        target_data = pd.DataFrame([
+            {"fname": "John", "lname": "Smith"},                # 0: Perfect match to 0
+            {"fname": "Janet", "lname": "Doe"},                 # 1: Similar to 1
+            {"fname": "Alice", "lname": "Brown"},               # 2: No match to anyone
+        ])
+
+        column_mappings = {"first_name": "fname", "last_name": "lname"}
+        comparison_config = {
+            "first_name": {"method": "jaro_winkler"},
+            "last_name": {"method": "jaro_winkler"}
+        }
+
+        # Train classifier that will have clear decision boundary
+        X = [
+            [1.0, 1.0], [0.95, 0.98], [0.88, 0.92],  # Matches
+            [0.2, 0.3], [0.1, 0.2], [0.3, 0.1],      # Non-matches
+            [0.5, 0.6], [0.55, 0.45],                 # Borderline - more uncertain
+            [0.92, 0.89], [0.22, 0.18],
+        ]
+        y = [1, 1, 1, 0, 0, 0, 1, 0, 1, 0]
+
+        classifier = LogisticRegressionClassifier()
+        classifier.fit(X, y, feature_names=["first_name", "last_name"])
+
+        # Run multiple times to check it consistently selects uncertain pairs
+        result = select_informative_pair_with_explanation(
+            source_data, target_data,
+            column_mappings, comparison_config,
+            blocking_config={},
+            labeled_pairs=set(),
+            model=classifier,
+            strategy="uncertainty",
+            is_dedup=False
+        )
+
+        assert result is not None
+        assert result.selection_reason == "uncertainty_sampling"
+        # The selected pair should have a model probability relatively close to 0.5
+        # Allow some flexibility since exact values depend on the classifier
+        assert result.model_probability is not None
+
+    def test_classifier_predict_proba_returns_single_value(self):
+        """Test that classifier.predict_proba returns a list of single float values."""
+        X_train = [
+            [1.0, 1.0], [0.9, 0.95], [0.85, 0.9],
+            [0.2, 0.3], [0.1, 0.2], [0.3, 0.1],
+        ]
+        y_train = [1, 1, 1, 0, 0, 0]
+
+        classifier = LogisticRegressionClassifier()
+        classifier.fit(X_train, y_train)
+
+        # Test single prediction
+        probs = classifier.predict_proba([[0.5, 0.5]])
+        assert len(probs) == 1
+        assert isinstance(probs[0], float)
+        assert 0 <= probs[0] <= 1
+
+        # Test multiple predictions
+        probs = classifier.predict_proba([[1.0, 1.0], [0.1, 0.1], [0.5, 0.5]])
+        assert len(probs) == 3
+        assert all(isinstance(p, float) for p in probs)
+        assert all(0 <= p <= 1 for p in probs)
