@@ -1,16 +1,24 @@
 from pydantic_settings import BaseSettings
+from pydantic import Field
 from functools import lru_cache
 from pathlib import Path
 
 
 class Settings(BaseSettings):
     app_name: str = "Record Linkage App"
-    debug: bool = True
+    debug: bool = Field(default=False, env="DEBUG")
 
     # Security
-    secret_key: str = "dev-secret-key-change-in-production"
+    secret_key: str = Field(
+        ...,  # Required, no default!
+        env="SECRET_KEY",
+        description="Secret key for JWT - MUST be set"
+    )
     algorithm: str = "HS256"
-    access_token_expire_minutes: int = 1440  # 24 hours
+    access_token_expire_minutes: int = Field(
+        default=30,  # 30 minutes
+        env="ACCESS_TOKEN_EXPIRE_MINUTES"
+    )
 
     # Database
     database_url: str = "sqlite:///./storage/app.db"

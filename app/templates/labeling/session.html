@@ -630,9 +630,10 @@
             .filter(([key]) => key !== '_idx')
             .map(([key, value]) => {
                 const isHighlight = highlightColumns.includes(key);
+                // Use escapeHtml to prevent XSS attacks
                 return `<div class="flex justify-between ${isHighlight ? 'bg-indigo-50 -mx-2 px-2 py-1 rounded' : ''}">
-                    <span class="text-sm font-medium text-gray-500">${key}</span>
-                    <span class="text-sm text-gray-900 ${isHighlight ? 'font-medium' : ''}">${value ?? '<em class="text-gray-400">null</em>'}</span>
+                    <span class="text-sm font-medium text-gray-500">${escapeHtml(key)}</span>
+                    <span class="text-sm text-gray-900 ${isHighlight ? 'font-medium' : ''}">${value !== null && value !== undefined ? escapeHtml(String(value)) : '<em class="text-gray-400">null</em>'}</span>
                 </div>`;
             }).join('');
     }
@@ -747,21 +748,22 @@
 
     function createMappingRow(source, target, method, sourceColumns, targetColumns, idx) {
         const methods = ['exact', 'jaro_winkler', 'levenshtein', 'soundex', 'numeric', 'date'];
+        // Use escapeHtml to prevent XSS attacks on column names
         return `
             <tr data-idx="${idx}">
                 <td class="px-3 py-2">
                     <select class="source-col text-sm border-gray-300 rounded-md w-full">
-                        ${sourceColumns.map(c => `<option value="${c}" ${c === source ? 'selected' : ''}>${c}</option>`).join('')}
+                        ${sourceColumns.map(c => `<option value="${escapeHtml(c)}" ${c === source ? 'selected' : ''}>${escapeHtml(c)}</option>`).join('')}
                     </select>
                 </td>
                 <td class="px-3 py-2">
                     <select class="target-col text-sm border-gray-300 rounded-md w-full">
-                        ${targetColumns.map(c => `<option value="${c}" ${c === target ? 'selected' : ''}>${c}</option>`).join('')}
+                        ${targetColumns.map(c => `<option value="${escapeHtml(c)}" ${c === target ? 'selected' : ''}>${escapeHtml(c)}</option>`).join('')}
                     </select>
                 </td>
                 <td class="px-3 py-2">
                     <select class="method text-sm border-gray-300 rounded-md w-full">
-                        ${methods.map(m => `<option value="${m}" ${m === method ? 'selected' : ''}>${m.replace('_', ' ')}</option>`).join('')}
+                        ${methods.map(m => `<option value="${escapeHtml(m)}" ${m === method ? 'selected' : ''}>${escapeHtml(m.replace('_', ' '))}</option>`).join('')}
                     </select>
                 </td>
                 <td class="px-3 py-2">
@@ -1091,27 +1093,28 @@
                 </span>`;
             }
 
+            // Use escapeHtml to prevent XSS attacks
             return `
                 <div class="px-6 py-4 hover:bg-gray-50 cursor-pointer" onclick="viewPairDetail(${pair.id})">
                     <div class="flex items-center justify-between">
                         <div class="flex-1 min-w-0">
                             <div class="flex items-center space-x-2">
-                                <span class="text-sm font-medium text-gray-900 truncate">${leftName}</span>
+                                <span class="text-sm font-medium text-gray-900 truncate">${escapeHtml(leftName)}</span>
                                 <svg class="h-4 w-4 text-gray-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
                                 </svg>
-                                <span class="text-sm font-medium text-gray-900 truncate">${rightName}</span>
+                                <span class="text-sm font-medium text-gray-900 truncate">${escapeHtml(rightName)}</span>
                             </div>
                             <div class="mt-1 flex items-center space-x-3 text-xs text-gray-500">
                                 ${Object.entries(pair.comparison_vector || {}).slice(0, 3).map(([k, v]) =>
-                                    `<span>${k}: ${Math.round(v * 100)}%</span>`
+                                    `<span>${escapeHtml(k)}: ${Math.round(v * 100)}%</span>`
                                 ).join('')}
                             </div>
                         </div>
                         <div class="flex items-center space-x-3">
                             ${modelScoreBadge}
                             <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${labelColors[pair.label] || 'bg-gray-100 text-gray-800'}">
-                                ${labelText[pair.label] || pair.label}
+                                ${escapeHtml(labelText[pair.label] || pair.label)}
                             </span>
                             <span class="text-xs text-gray-400">
                                 ${new Date(pair.created_at).toLocaleDateString()}

@@ -156,33 +156,81 @@
                     </div>
                 `;
             } else {
-                projectsList.innerHTML = projects.map(project => `
-                    <a href="/projects/${project.id}" class="block hover:bg-gray-50">
-                        <div class="px-4 py-4 sm:px-6">
-                            <div class="flex items-center justify-between">
-                                <p class="truncate text-sm font-medium text-indigo-600">${project.name}</p>
-                                <div class="ml-2 flex flex-shrink-0">
-                                    <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${project.linkage_type === 'deduplication' ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800'}">
-                                        ${project.linkage_type === 'deduplication' ? 'Deduplication' : 'Linkage'}
-                                    </span>
-                                </div>
-                            </div>
-                            <div class="mt-2 sm:flex sm:justify-between">
-                                <div class="sm:flex">
-                                    <p class="flex items-center text-sm text-gray-500">
-                                        ${project.description || 'No description'}
-                                    </p>
-                                </div>
-                                <div class="mt-2 flex items-center text-sm text-gray-500 sm:mt-0">
-                                    <svg class="mr-1.5 h-5 w-5 flex-shrink-0 text-gray-400" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                                        <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
-                                    </svg>
-                                    <p>Created ${new Date(project.created_at).toLocaleDateString()}</p>
-                                </div>
-                            </div>
-                        </div>
-                    </a>
-                `).join('');
+                // Clear list safely
+                projectsList.innerHTML = '';
+
+                // Build project list using safe DOM manipulation
+                projects.forEach(project => {
+                    const link = document.createElement('a');
+                    link.href = `/projects/${project.id}`;
+                    link.className = 'block hover:bg-gray-50';
+
+                    const container = document.createElement('div');
+                    container.className = 'px-4 py-4 sm:px-6';
+
+                    // Top section: name and badge
+                    const topDiv = document.createElement('div');
+                    topDiv.className = 'flex items-center justify-between';
+
+                    const nameP = document.createElement('p');
+                    nameP.className = 'truncate text-sm font-medium text-indigo-600';
+                    nameP.textContent = project.name;  // XSS-safe!
+
+                    const badgeContainer = document.createElement('div');
+                    badgeContainer.className = 'ml-2 flex flex-shrink-0';
+
+                    const badge = document.createElement('span');
+                    badge.className = `inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${project.linkage_type === 'deduplication' ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800'}`;
+                    badge.textContent = project.linkage_type === 'deduplication' ? 'Deduplication' : 'Linkage';
+
+                    badgeContainer.appendChild(badge);
+                    topDiv.appendChild(nameP);
+                    topDiv.appendChild(badgeContainer);
+
+                    // Bottom section: description and date
+                    const bottomDiv = document.createElement('div');
+                    bottomDiv.className = 'mt-2 sm:flex sm:justify-between';
+
+                    const descDiv = document.createElement('div');
+                    descDiv.className = 'sm:flex';
+
+                    const descP = document.createElement('p');
+                    descP.className = 'flex items-center text-sm text-gray-500';
+                    descP.textContent = project.description || 'No description';  // XSS-safe!
+
+                    descDiv.appendChild(descP);
+
+                    const dateDiv = document.createElement('div');
+                    dateDiv.className = 'mt-2 flex items-center text-sm text-gray-500 sm:mt-0';
+
+                    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                    svg.setAttribute('class', 'mr-1.5 h-5 w-5 flex-shrink-0 text-gray-400');
+                    svg.setAttribute('fill', 'none');
+                    svg.setAttribute('viewBox', '0 0 24 24');
+                    svg.setAttribute('stroke-width', '1.5');
+                    svg.setAttribute('stroke', 'currentColor');
+
+                    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                    path.setAttribute('stroke-linecap', 'round');
+                    path.setAttribute('stroke-linejoin', 'round');
+                    path.setAttribute('d', 'M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5');
+
+                    svg.appendChild(path);
+
+                    const dateP = document.createElement('p');
+                    dateP.textContent = 'Created ' + new Date(project.created_at).toLocaleDateString();
+
+                    dateDiv.appendChild(svg);
+                    dateDiv.appendChild(dateP);
+
+                    bottomDiv.appendChild(descDiv);
+                    bottomDiv.appendChild(dateDiv);
+
+                    container.appendChild(topDiv);
+                    container.appendChild(bottomDiv);
+                    link.appendChild(container);
+                    projectsList.appendChild(link);
+                });
             }
 
             // Update user info in navbar

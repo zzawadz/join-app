@@ -54,26 +54,57 @@
                 return;
             }
 
-            container.innerHTML = projects.map(project => `
-                <a href="/projects/${project.id}" class="block hover:bg-gray-50">
-                    <div class="px-4 py-4 sm:px-6">
-                        <div class="flex items-center justify-between">
-                            <p class="truncate text-sm font-medium text-indigo-600">${project.name}</p>
-                            <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${project.linkage_type === 'deduplication' ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800'}">
-                                ${project.linkage_type === 'deduplication' ? 'Deduplication' : 'Linkage'}
-                            </span>
-                        </div>
-                        <div class="mt-2 sm:flex sm:justify-between">
-                            <div class="sm:flex text-sm text-gray-500">
-                                <p>${project.description || 'No description'}</p>
-                            </div>
-                            <div class="mt-2 flex items-center text-sm text-gray-500 sm:mt-0">
-                                Created ${new Date(project.created_at).toLocaleDateString()}
-                            </div>
-                        </div>
-                    </div>
-                </a>
-            `).join('');
+            // Clear container safely
+            container.innerHTML = '';
+
+            // Build project list using safe DOM manipulation
+            projects.forEach(project => {
+                const link = document.createElement('a');
+                link.href = `/projects/${project.id}`;
+                link.className = 'block hover:bg-gray-50';
+
+                const contentDiv = document.createElement('div');
+                contentDiv.className = 'px-4 py-4 sm:px-6';
+
+                // Top section: name and badge
+                const topDiv = document.createElement('div');
+                topDiv.className = 'flex items-center justify-between';
+
+                const nameP = document.createElement('p');
+                nameP.className = 'truncate text-sm font-medium text-indigo-600';
+                nameP.textContent = project.name;  // XSS-safe!
+
+                const badge = document.createElement('span');
+                badge.className = `inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${project.linkage_type === 'deduplication' ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800'}`;
+                badge.textContent = project.linkage_type === 'deduplication' ? 'Deduplication' : 'Linkage';
+
+                topDiv.appendChild(nameP);
+                topDiv.appendChild(badge);
+
+                // Bottom section: description and date
+                const bottomDiv = document.createElement('div');
+                bottomDiv.className = 'mt-2 sm:flex sm:justify-between';
+
+                const descDiv = document.createElement('div');
+                descDiv.className = 'sm:flex text-sm text-gray-500';
+
+                const descP = document.createElement('p');
+                descP.textContent = project.description || 'No description';  // XSS-safe!
+
+                descDiv.appendChild(descP);
+
+                const dateDiv = document.createElement('div');
+                dateDiv.className = 'mt-2 flex items-center text-sm text-gray-500 sm:mt-0';
+                dateDiv.textContent = 'Created ' + new Date(project.created_at).toLocaleDateString();
+
+                bottomDiv.appendChild(descDiv);
+                bottomDiv.appendChild(dateDiv);
+
+                contentDiv.appendChild(topDiv);
+                contentDiv.appendChild(bottomDiv);
+                link.appendChild(contentDiv);
+                container.appendChild(link);
+            });
         } catch (error) {
             console.error('Failed to load projects:', error);
         }

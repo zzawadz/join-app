@@ -1,9 +1,12 @@
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Request
+from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
+from typing import Union
 
 from app.db.database import get_db
 from app.db.models import User, Project, Dataset, Organization, OrganizationMember
 from app.api.auth import get_current_active_user
+from app.core.security import decode_token
 
 
 def get_user_organization(
@@ -78,3 +81,45 @@ def get_dataset_or_404(
         )
 
     return dataset
+
+
+async def get_current_user_or_redirect(
+    request: Request,
+    db: Session = Depends(get_db)
+) -> Union[User, RedirectResponse]:
+    """
+    Get current user for HTML pages, redirect to login if not authenticated.
+    Checks httpOnly cookie first, then Authorization header as fallback.
+    """
+    # Try cookie first (httpOnly, more secure)
+    token = request.cookies.get("access_token")
+
+    if not token:
+        # Fallback: check Authorization header (for API compatibility)
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header[7:]
+
+    if not token:
+        return RedirectResponse(url="/login", status_code=303)
+
+    try:
+        # Remove "Bearer " prefix if cookie format
+        if token.startswith("Bearer "):
+            token = token[7:]
+
+        payload = decode_token(token)
+        if payload is None:
+            return RedirectResponse(url="/login", status_code=303)
+
+        user_id = payload.get("sub")
+        if user_id is None:
+            return RedirectResponse(url="/login", status_code=303)
+
+        user = db.query(User).filter(User.id == int(user_id)).first()
+        if user is None or not user.is_active:
+            return RedirectResponse(url="/login", status_code=303)
+
+        return user
+    except Exception:
+        return RedirectResponse(url="/login", status_code=303)
