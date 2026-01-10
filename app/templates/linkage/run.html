@@ -384,9 +384,46 @@
         document.getElementById('results-modal').classList.add('hidden');
     }
 
-    function exportResults() {
+    async function exportResults() {
         if (!currentJobId) return;
-        window.location.href = `/api/linkage/jobs/${currentJobId}/export?token=${getAuthToken()}`;
+
+        try {
+            // Fetch with Authorization header (secure method)
+            const response = await fetch(`/api/linkage/jobs/${currentJobId}/export`, {
+                method: 'GET',
+                headers: {
+                    'Authorization': 'Bearer ' + getAuthToken()
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error(`Export failed: ${response.statusText}`);
+            }
+
+            // Get filename from Content-Disposition header or use default
+            const contentDisposition = response.headers.get('Content-Disposition');
+            let filename = 'linkage_results.csv';
+            if (contentDisposition) {
+                const matches = /filename="([^"]+)"/.exec(contentDisposition);
+                if (matches) filename = matches[1];
+            }
+
+            // Download the file
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+
+            showToast('Results exported successfully', 'success');
+        } catch (error) {
+            console.error('Export error:', error);
+            showToast('Failed to export results', 'error');
+        }
     }
 
     loadData();

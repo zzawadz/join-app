@@ -60,8 +60,12 @@ async def upload_dataset(
     if not file.filename.endswith('.csv'):
         raise HTTPException(status_code=400, detail="Only CSV files are supported")
 
-    # Save file
-    file_path, file_size = await save_uploaded_file(file, project_id)
+    # Save file with size validation
+    try:
+        file_path, file_size = await save_uploaded_file(file, project_id)
+    except ValueError as e:
+        # File size exceeded
+        raise HTTPException(status_code=413, detail=str(e))
 
     # Process CSV to extract metadata
     try:

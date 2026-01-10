@@ -240,32 +240,6 @@ def get_job_results(
     return query.order_by(RecordPair.match_score.desc()).offset(offset).limit(limit).all()
 
 
-def get_user_from_token_param(token: str, db: Session) -> User:
-    """Authenticate user from token query parameter (for file downloads)."""
-    credentials_exception = HTTPException(
-        status_code=401,
-        detail="Could not validate credentials"
-    )
-    payload = decode_token(token)
-    if payload is None:
-        raise credentials_exception
-
-    user_id_str = payload.get("sub")
-    if user_id_str is None:
-        raise credentials_exception
-
-    try:
-        user_id = int(user_id_str)
-    except (ValueError, TypeError):
-        raise credentials_exception
-
-    user = db.query(User).filter(User.id == user_id).first()
-    if user is None or not user.is_active:
-        raise credentials_exception
-
-    return user
-
-
 @router.get("/jobs/{job_id}/results/full")
 def get_job_results_with_records(
     job_id: int,
@@ -328,29 +302,14 @@ def get_job_results_with_records(
 def export_results(
     job_id: int,
     format: str = "csv",
-    token: Optional[str] = Query(None, description="JWT token for authentication (alternative to Authorization header)"),
-    current_user: Optional[User] = Depends(lambda: None),
+    current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """Export linkage results as CSV with full record values.
 
-    Supports authentication via either:
-    - Authorization: Bearer <token> header
-    - token query parameter (for direct download links)
+    Authentication via Authorization header only (tokens in query parameters
+    are insecure as they are logged in browser history and server logs).
     """
-    # Handle token-based auth for downloads
-    from fastapi import Request
-    from starlette.requests import Request as StarletteRequest
-
-    # Try to get user from token param first if provided
-    if token:
-        current_user = get_user_from_token_param(token, db)
-    else:
-        # Fall back to header-based auth - we need to re-check manually
-        raise HTTPException(
-            status_code=401,
-            detail="Authentication required. Provide token parameter for downloads."
-        )
 
     job = db.query(LinkageJob).filter(LinkageJob.id == job_id).first()
     if not job:
