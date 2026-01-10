@@ -313,11 +313,13 @@
     }
 
     function formatRecord(record) {
-        // Format record as key-value pairs for display
+        // Format record as key-value pairs for display (XSS-safe)
         const entries = Object.entries(record)
             .filter(([k, v]) => v !== null && v !== '')
             .slice(0, 4);  // Show first 4 fields
-        return entries.map(([k, v]) => `<span class="text-gray-500">${k}:</span> ${v}`).join('<br>');
+        return entries.map(([k, v]) =>
+            `<span class="text-gray-500">${escapeHtml(k)}:</span> ${escapeHtml(v)}`
+        ).join('<br>');
     }
 
     function getRecordSummary(record) {

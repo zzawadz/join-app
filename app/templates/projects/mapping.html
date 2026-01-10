@@ -136,11 +136,11 @@
         }
 
         tbody.innerHTML = Object.entries(currentMappings).map(([source, target], idx) => `
-            <tr data-source="${source}">
+            <tr data-source="${escapeHtml(source)}">
                 <td class="px-6 py-4 whitespace-nowrap">
-                    <select class="source-select rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm" onchange="updateMapping(this, '${source}')">
+                    <select class="source-select rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm" onchange="updateMapping(this, '${escapeHtml(source)}')">
                         <option value="">-- Select --</option>
-                        ${sourceColumns.map(col => `<option value="${col}" ${col === source ? 'selected' : ''}>${col}</option>`).join('')}
+                        ${sourceColumns.map(col => `<option value="${escapeHtml(col)}" ${col === source ? 'selected' : ''}>${escapeHtml(col)}</option>`).join('')}
                     </select>
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap text-center">

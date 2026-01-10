@@ -3,6 +3,8 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from typing import Optional, List
 import os
+import csv
+import aiofiles
 
 from app.db.database import get_db
 from app.db.models import User, Dataset, Project
@@ -15,6 +17,61 @@ from app.config import get_settings
 
 settings = get_settings()
 router = APIRouter()
+
+
+async def validate_csv_content(file_path: str) -> bool:
+    """
+    Validate that a file is actually a CSV by inspecting its content.
+
+    Args:
+        file_path: Path to the file to validate
+
+    Returns:
+        True if valid CSV
+
+    Raises:
+        ValueError: If file is not a valid CSV
+    """
+    try:
+        # Read first 4KB to check content
+        async with aiofiles.open(file_path, 'rb') as f:
+            sample = await f.read(4096)
+
+        if not sample:
+            raise ValueError("File is empty")
+
+        # Check for null bytes (binary file indicator)
+        if b'\x00' in sample:
+            raise ValueError("File appears to be binary, not a valid CSV text file")
+
+        # Try to decode as text
+        try:
+            sample_text = sample.decode('utf-8')
+        except UnicodeDecodeError:
+            try:
+                sample_text = sample.decode('latin-1')
+            except UnicodeDecodeError:
+                raise ValueError("File encoding is not supported. Please use UTF-8 or Latin-1")
+
+        # Try to parse as CSV
+        try:
+            import io
+            reader = csv.reader(io.StringIO(sample_text))
+            rows = list(reader)
+            if len(rows) < 1:
+                raise ValueError("CSV file has no data")
+            # Check that first row has at least one column
+            if not rows[0] or all(cell.strip() == '' for cell in rows[0]):
+                raise ValueError("CSV file has no valid columns")
+        except csv.Error as e:
+            raise ValueError(f"File is not a valid CSV: {str(e)}")
+
+        return True
+
+    except ValueError:
+        raise
+    except Exception as e:
+        raise ValueError(f"Failed to validate CSV file: {str(e)}")
 
 
 @router.get("", response_model=List[DatasetResponse])
@@ -56,8 +113,8 @@ async def upload_dataset(
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    # Validate file type
-    if not file.filename.endswith('.csv'):
+    # Validate file type by extension
+    if not file.filename or not file.filename.lower().endswith('.csv'):
         raise HTTPException(status_code=400, detail="Only CSV files are supported")
 
     # Save file with size validation
@@ -66,6 +123,14 @@ async def upload_dataset(
     except ValueError as e:
         # File size exceeded
         raise HTTPException(status_code=413, detail=str(e))
+
+    # Validate file content is actually CSV
+    try:
+        await validate_csv_content(file_path)
+    except ValueError as e:
+        # Not a valid CSV file
+        delete_file(file_path)
+        raise HTTPException(status_code=400, detail=str(e))
 
     # Process CSV to extract metadata
     try:

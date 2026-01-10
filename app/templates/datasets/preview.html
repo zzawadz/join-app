@@ -84,32 +84,32 @@
             document.getElementById('dataset-name').textContent = dataset.name;
             document.getElementById('dataset-info').textContent = `${dataset.row_count?.toLocaleString() || '?'} rows, ${dataset.column_names?.length || '?'} columns`;
 
-            // Column badges
+            // Column badges (XSS-safe)
             const badgesDiv = document.getElementById('column-badges');
             badgesDiv.innerHTML = dataset.column_names.map(col => `
                 <span class="inline-flex items-center rounded-full bg-indigo-100 px-3 py-1 text-sm font-medium text-indigo-700">
-                    ${col}
+                    ${escapeHtml(col)}
                 </span>
             `).join('');
 
-            // Table header
+            // Table header (XSS-safe)
             const thead = document.getElementById('preview-header');
             thead.innerHTML = `
                 <tr>
                     <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">#</th>
                     ${dataset.column_names.map(col => `
-                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${col}</th>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${escapeHtml(col)}</th>
                     `).join('')}
                 </tr>
             `;
 
-            // Table body
+            // Table body (XSS-safe)
             const tbody = document.getElementById('preview-body');
             tbody.innerHTML = dataset.sample_data.map((row, idx) => `
                 <tr class="${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}">
                     <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-400">${idx + 1}</td>
                     ${dataset.column_names.map(col => `
-                        <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-900">${row[col] ?? '<span class="text-gray-400">null</span>'}</td>
+                        <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-900">${row[col] !== null && row[col] !== undefined ? escapeHtml(String(row[col])) : '<span class="text-gray-400">null</span>'}</td>
                     `).join('')}
                 </tr>
             `).join('');

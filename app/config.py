@@ -36,6 +36,13 @@ class Settings(BaseSettings):
         description="Secret key for model signing - MUST be set"
     )
 
+    # CORS configuration
+    allowed_origins: str = Field(
+        default="",
+        env="ALLOWED_ORIGINS",
+        description="Comma-separated list of allowed origins for CORS"
+    )
+
     # Base directory
     base_dir: Path = Path(__file__).resolve().parent.parent
 

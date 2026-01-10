@@ -2,6 +2,7 @@ from fastapi import FastAPI, Request, Depends
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import RedirectResponse
+from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -71,6 +72,35 @@ app = FastAPI(
     title=settings.app_name,
     debug=settings.debug,
     lifespan=lifespan
+)
+
+# Configure CORS
+allowed_origins = []
+if settings.debug:
+    # Development: allow localhost
+    allowed_origins = [
+        "http://localhost:3000",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+        "http://127.0.0.1:3000"
+    ]
+else:
+    # Production: specific domains only
+    if settings.allowed_origins:
+        allowed_origins = [origin.strip() for origin in settings.allowed_origins.split(",") if origin.strip()]
+    else:
+        raise RuntimeError(
+            "SECURITY ERROR: ALLOWED_ORIGINS must be configured in production! "
+            "Set ALLOWED_ORIGINS environment variable with comma-separated origins."
+        )
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
+    allow_headers=["Content-Type", "Authorization"],
+    max_age=3600,
 )
 
 # Mount static files
