@@ -29,21 +29,50 @@ def init_db():
 
 
 def create_test_user():
-    """Create a test user for development."""
+    """
+    Create a test user for development ONLY.
+
+    Only runs in debug mode. Uses environment variables for credentials
+    or generates a random password if not provided.
+
+    Security: This function will NOT run in production mode.
+    """
+    import os
+    import secrets
+    import logging
+
+    settings = get_settings()
+
+    # Only run in debug mode
+    if not settings.debug:
+        return
+
     from app.db.models import User, Organization, OrganizationMember, MemberRole
     from app.core.security import get_password_hash
 
+    logger = logging.getLogger(__name__)
     db = SessionLocal()
+
     try:
+        # Get credentials from environment or generate
+        test_email = os.getenv("TEST_USER_EMAIL", "test@example.com")
+        test_password = os.getenv("TEST_USER_PASSWORD")
+
         # Check if test user exists
-        existing = db.query(User).filter(User.email == "test@example.com").first()
+        existing = db.query(User).filter(User.email == test_email).first()
         if existing:
             return
 
+        # Generate random password if not provided
+        if not test_password:
+            test_password = secrets.token_urlsafe(16)
+            logger.info(f"Generated test user password: {test_password}")
+            logger.info("Set TEST_USER_PASSWORD environment variable to use a custom password")
+
         # Create test user
         user = User(
-            email="test@example.com",
-            hashed_password=get_password_hash("test123"),
+            email=test_email,
+            hashed_password=get_password_hash(test_password),
             full_name="Test User"
         )
         db.add(user)
@@ -63,9 +92,15 @@ def create_test_user():
         db.add(membership)
 
         db.commit()
-        print("Test user created: test@example.com / test123")
+
+        # Log without password if using environment variable
+        if os.getenv("TEST_USER_PASSWORD"):
+            logger.info(f"Test user created: {test_email} (password from TEST_USER_PASSWORD)")
+        else:
+            logger.info(f"Test user created: {test_email} / {test_password}")
+
     except Exception as e:
         db.rollback()
-        print(f"Error creating test user: {e}")
+        logger.error(f"Error creating test user: {e}")
     finally:
         db.close()

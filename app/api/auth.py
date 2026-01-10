@@ -145,13 +145,16 @@ def login(
     access_token = create_access_token(data={"sub": str(user.id)})
 
     # Set httpOnly cookie (prevents JavaScript access)
+    from app.config import get_settings
+    settings = get_settings()
+
     response.set_cookie(
         key="access_token",
         value=f"Bearer {access_token}",
-        httponly=True,    # Blocks JavaScript access!
-        secure=False,     # Set True in production (HTTPS only)
-        samesite="lax",   # CSRF protection
-        max_age=1800      # 30 minutes in seconds
+        httponly=True,
+        secure=not settings.debug,  # True in production (HTTPS only)
+        samesite="strict" if not settings.debug else "lax",  # Strict CSRF protection in production
+        max_age=settings.access_token_expire_minutes * 60  # Convert minutes to seconds
     )
 
     return {"access_token": access_token, "token_type": "bearer"}
@@ -181,13 +184,16 @@ def login_json(
     access_token = create_access_token(data={"sub": str(user.id)})
 
     # Set httpOnly cookie (prevents JavaScript access)
+    from app.config import get_settings
+    settings = get_settings()
+
     response.set_cookie(
         key="access_token",
         value=f"Bearer {access_token}",
-        httponly=True,    # Blocks JavaScript access!
-        secure=False,     # Set True in production (HTTPS only)
-        samesite="lax",   # CSRF protection
-        max_age=1800      # 30 minutes in seconds
+        httponly=True,
+        secure=not settings.debug,  # True in production (HTTPS only)
+        samesite="strict" if not settings.debug else "lax",  # Strict CSRF protection in production
+        max_age=settings.access_token_expire_minutes * 60  # Convert minutes to seconds
     )
 
     return {"access_token": access_token, "token_type": "bearer"}
