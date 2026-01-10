@@ -8,6 +8,9 @@ from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.model_selection import cross_val_score, train_test_split
 from sklearn.metrics import precision_score, recall_score, f1_score, accuracy_score, confusion_matrix
 import joblib
+import hmac
+import hashlib
+from pathlib import Path
 
 
 class BaseLinkageClassifier:
@@ -338,11 +341,124 @@ def train_classifier(
     return classifier
 
 
+def _sign_model(model_path: str, secret_key: str) -> Path:
+    """
+    Sign a model file with HMAC-SHA256.
+
+    Args:
+        model_path: Path to the model file
+        secret_key: Secret key for signing
+
+    Returns:
+        Path to the signature file
+    """
+    with open(model_path, 'rb') as f:
+        model_data = f.read()
+
+    signature = hmac.new(
+        secret_key.encode(),
+        model_data,
+        hashlib.sha256
+    ).hexdigest()
+
+    sig_path = Path(f"{model_path}.sig")
+    with open(sig_path, 'w') as f:
+        f.write(signature)
+
+    return sig_path
+
+
+def _verify_model_signature(model_path: str, secret_key: str) -> bool:
+    """
+    Verify model signature.
+
+    Args:
+        model_path: Path to the model file
+        secret_key: Secret key for verification
+
+    Returns:
+        True if signature is valid
+
+    Raises:
+        ValueError: If signature file is missing or signature is invalid
+    """
+    sig_path = Path(f"{model_path}.sig")
+
+    if not sig_path.exists():
+        raise ValueError(
+            f"Model signature file missing: {sig_path}. "
+            "This may indicate tampering or an unsigned model."
+        )
+
+    # Read model data
+    with open(model_path, 'rb') as f:
+        model_data = f.read()
+
+    # Read expected signature
+    with open(sig_path, 'r') as f:
+        expected_sig = f.read().strip()
+
+    # Compute actual signature
+    actual_sig = hmac.new(
+        secret_key.encode(),
+        model_data,
+        hashlib.sha256
+    ).hexdigest()
+
+    # Use constant-time comparison to prevent timing attacks
+    if not hmac.compare_digest(actual_sig, expected_sig):
+        raise ValueError(
+            "Model signature verification failed. "
+            "This may indicate tampering with the model file."
+        )
+
+    return True
+
+
 def save_classifier(classifier: BaseLinkageClassifier, path: str):
-    """Save a classifier to disk."""
+    """
+    Save a classifier to disk with cryptographic signature.
+
+    Args:
+        classifier: The classifier to save
+        path: Path where the model should be saved
+
+    Note:
+        This function automatically signs the model after saving.
+        The signature file will be created at {path}.sig
+    """
+    from app.config import get_settings
+    settings = get_settings()
+
+    # Save model
     joblib.dump(classifier, path)
+
+    # Sign model for integrity verification
+    _sign_model(path, settings.model_secret_key)
 
 
 def load_classifier(path: str) -> BaseLinkageClassifier:
-    """Load a classifier from disk."""
+    """
+    Load a classifier from disk with signature verification.
+
+    Args:
+        path: Path to the model file
+
+    Returns:
+        The loaded classifier
+
+    Raises:
+        ValueError: If signature is missing or invalid
+
+    Security:
+        This function verifies the model's cryptographic signature
+        before loading to prevent execution of tampered models.
+    """
+    from app.config import get_settings
+    settings = get_settings()
+
+    # Verify signature before loading
+    _verify_model_signature(path, settings.model_secret_key)
+
+    # Load model (signature verified, safe to load)
     return joblib.load(path)

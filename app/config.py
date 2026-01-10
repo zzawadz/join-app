@@ -29,6 +29,13 @@ class Settings(BaseSettings):
     models_dir: str = "storage/models"
     max_upload_size_mb: int = 100
 
+    # Model security
+    model_secret_key: str = Field(
+        ...,  # Required, no default!
+        env="MODEL_SECRET_KEY",
+        description="Secret key for model signing - MUST be set"
+    )
+
     # Base directory
     base_dir: Path = Path(__file__).resolve().parent.parent
 

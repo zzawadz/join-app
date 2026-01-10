@@ -37,6 +37,7 @@ def validate_security_config():
         "secret", "password", "test", "demo"
     ]
 
+    # Validate JWT secret key
     if any(pattern in settings.secret_key.lower() for pattern in insecure_patterns):
         if not settings.debug:
             raise RuntimeError(
@@ -46,11 +47,24 @@ def validate_security_config():
         else:
             print("⚠️  WARNING: Using default SECRET_KEY in debug mode")
 
-    if settings.debug:
-        print("⚠️  WARNING: Debug mode enabled - disable in production!")
-
     if len(settings.secret_key) < 32:
         print("⚠️  WARNING: SECRET_KEY should be at least 32 characters")
+
+    # Validate model signing key
+    if any(pattern in settings.model_secret_key.lower() for pattern in insecure_patterns):
+        if not settings.debug:
+            raise RuntimeError(
+                "SECURITY ERROR: Using default/weak MODEL_SECRET_KEY in production! "
+                "Set a strong MODEL_SECRET_KEY environment variable (32+ chars)."
+            )
+        else:
+            print("⚠️  WARNING: Using default MODEL_SECRET_KEY in debug mode")
+
+    if len(settings.model_secret_key) < 32:
+        print("⚠️  WARNING: MODEL_SECRET_KEY should be at least 32 characters")
+
+    if settings.debug:
+        print("⚠️  WARNING: Debug mode enabled - disable in production!")
 
 
 app = FastAPI(
