@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Response
+from fastapi import APIRouter, Depends, HTTPException, status, Response, Request
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
@@ -11,30 +11,46 @@ from app.schemas.user import UserCreate, UserResponse, Token, UserLogin
 from app.core.security import (
     verify_password, get_password_hash, create_access_token, decode_token
 )
+from app.core.rate_limit import limiter
 
 router = APIRouter()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
 
-def validate_password_strength(password: str) -> Tuple[bool, str]:
-    """Validate password meets complexity requirements."""
-    if len(password) < 8:
-        return False, "Password must be at least 8 characters"
+def validate_password_strength(password: str, user_inputs: list = None) -> Tuple[bool, str]:
+    """
+    Validate password strength using zxcvbn library.
+
+    Args:
+        password: Password to validate
+        user_inputs: List of user-specific words (email, name) to check against
+
+    Returns:
+        Tuple of (is_valid, error_message)
+    """
+    from zxcvbn import zxcvbn
+
+    # Length check
+    if len(password) < 12:
+        return False, "Password must be at least 12 characters"
     if len(password) > 128:
         return False, "Password too long (max 128 characters)"
-    if not re.search(r"[a-z]", password):
-        return False, "Password must contain lowercase letter"
-    if not re.search(r"[A-Z]", password):
-        return False, "Password must contain uppercase letter"
-    if not re.search(r"\d", password):
-        return False, "Password must contain digit"
-    if not re.search(r"[!@#$%^&*(),.?\":{}|<>]", password):
-        return False, "Password must contain special character"
 
-    # Check common weak passwords
-    weak = ['password', '12345678', 'qwerty', 'abc123', 'letmein']
-    if password.lower() in weak:
-        return False, "Password too common, choose stronger password"
+    # Use zxcvbn for strength analysis
+    result = zxcvbn(password, user_inputs=user_inputs or [])
+
+    # Require score of 3 or higher (out of 4)
+    # 0 = too guessable
+    # 1 = very guessable
+    # 2 = somewhat guessable
+    # 3 = safely unguessable
+    # 4 = very unguessable
+    if result['score'] < 3:
+        # Get feedback message
+        feedback_msg = result['feedback'].get('warning') or \
+                      (result['feedback'].get('suggestions')[0] if result['feedback'].get('suggestions') else None) or \
+                      "Password too weak"
+        return False, f"Password too weak: {feedback_msg}"
 
     return True, ""
 
@@ -77,8 +93,16 @@ def get_current_active_user(current_user: User = Depends(get_current_user)) -> U
 
 
 @router.post("/register", response_model=UserResponse)
-def register(user_data: UserCreate, db: Session = Depends(get_db)):
-    """Register a new user and create their personal organization."""
+@limiter.limit("3/hour")
+def register(
+    request: Request,
+    user_data: UserCreate,
+    db: Session = Depends(get_db)
+):
+    """Register a new user and create their personal organization.
+
+    Rate limit: 3 registrations per hour per IP address.
+    """
     # Check if email already exists
     existing = db.query(User).filter(User.email == user_data.email).first()
     if existing:
@@ -87,8 +111,13 @@ def register(user_data: UserCreate, db: Session = Depends(get_db)):
             detail="Email already registered"
         )
 
-    # Validate password strength
-    is_valid, error_msg = validate_password_strength(user_data.password)
+    # Validate password strength with user context
+    user_inputs = [
+        user_data.email,
+        user_data.email.split('@')[0],  # Username part of email
+        user_data.full_name
+    ]
+    is_valid, error_msg = validate_password_strength(user_data.password, user_inputs)
     if not is_valid:
         raise HTTPException(status_code=400, detail=error_msg)
 
@@ -121,12 +150,17 @@ def register(user_data: UserCreate, db: Session = Depends(get_db)):
 
 
 @router.post("/login", response_model=Token)
+@limiter.limit("5/minute")
 def login(
+    request: Request,
     response: Response,
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db)
 ):
-    """Login and receive JWT access token."""
+    """Login and receive JWT access token.
+
+    Rate limit: 5 login attempts per minute per IP address.
+    """
     user = db.query(User).filter(User.email == form_data.username).first()
 
     if not user or not verify_password(form_data.password, user.hashed_password):

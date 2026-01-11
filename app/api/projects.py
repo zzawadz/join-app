@@ -14,6 +14,7 @@ from app.schemas.project import (
 )
 from app.services.column_mapper import suggest_column_mappings
 from app.config import get_settings
+from app.core.errors import safe_error_response
 
 router = APIRouter()
 
@@ -198,11 +199,12 @@ def create_demo_project(
 
     except Exception as e:
         # Clean up on failure
-        db.delete(project)
-        db.commit()
-        raise HTTPException(
+        db.rollback()
+        raise safe_error_response(
+            operation="demo project creation",
+            exception=e,
             status_code=500,
-            detail=f"Failed to create demo project: {str(e)}"
+            user_message="Failed to create demo project. Please try again or contact support."
         )
 
 

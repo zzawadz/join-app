@@ -14,6 +14,7 @@ from app.schemas.dataset import DatasetCreate, DatasetResponse, DatasetPreview
 from app.services.csv_processor import process_csv_upload
 from app.services.storage import save_uploaded_file, delete_file
 from app.config import get_settings
+from app.core.errors import safe_error_response
 
 settings = get_settings()
 router = APIRouter()
@@ -138,7 +139,12 @@ async def upload_dataset(
     except Exception as e:
         # Clean up file on error
         delete_file(file_path)
-        raise HTTPException(status_code=400, detail=f"Failed to process CSV: {str(e)}")
+        raise safe_error_response(
+            operation="CSV processing",
+            exception=e,
+            status_code=400,
+            user_message="Failed to process CSV file. Please check the file format and try again."
+        )
 
     # Create dataset record
     dataset = Dataset(

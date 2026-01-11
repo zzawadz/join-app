@@ -138,8 +138,13 @@ def run_linkage_job_task(job_id: int, db_url: str):
         db.commit()
 
     except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.exception(f"Linkage job {job_id} failed: {e}")
+
         job.status = JobStatus.FAILED
-        job.error_message = str(e)
+        # Store generic error message for user (detailed error in logs)
+        job.error_message = "Job failed due to an error. Please check the configuration and try again."
         db.commit()
     finally:
         db.close()
